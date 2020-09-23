@@ -1,5 +1,18 @@
 address 0x1 {
 
+/// Auction is a contract for selling assets in the given
+/// interval of time (or possible implementation - when top bid is reached)
+/// Scheme is super easy:
+/// 1. owner places an asset for starting price in another asset.
+/// Currently the only possible asset type is Dfinance::T - a registered coin.
+/// 2. bidders place their bids which are stored inside Auction::T resource
+/// highest bidder wins when auction is closed by its owner
+/// 3. owner takes the bid and bidder gets the asset
+///
+/// Optional TODOs:
+/// - set optional minimal step size (say, 10000 units)
+/// - add error codes for operations in this contract
+/// - add end strategy - by time or by reaching the max value
 module Auction {
 
     use 0x1::Dfinance;
@@ -7,6 +20,8 @@ module Auction {
     use 0x1::Signer;
     use 0x1::Event;
 
+    /// Resource of the Auction. Stores max_bid and the bidder
+    /// address for sending asset back or rewarding the winner.
     resource struct T<Lot, For> {
         lot: Dfinance::T<Lot>,
         max_bid: Dfinance::T<For>,
@@ -34,6 +49,8 @@ module Auction {
         bid_amount: u128
     }
 
+    /// Create Auction resource under Owner (sender) address
+    /// Set default bidder as owner, max bid to 0 and start_price
     public fun create<Lot: copyable, For: copyable>(
         account: &signer,
         start_price: u128,
@@ -80,7 +97,9 @@ module Auction {
         )
     }
 
-    /// Place a bid for specific auction at address
+    /// Place a bid for specific auction at address.
+    /// What's a bit complicated is sending previous bid to its owner.
+    /// But looks like there is a solution at the moment.
     public fun place_bid<Lot: copyable, For: copyable>(
         account: &signer,
         auction_owner: address,
@@ -127,10 +146,10 @@ module Auction {
 
         let T {
             lot,
-            max_bid,
             bidder,
+            max_bid,
+            ends_at: _,
             start_price: _,
-            ends_at: _
         } = move_from<T<Lot, For>>(owner);
 
         let bid_amount = Dfinance::value(&max_bid);
