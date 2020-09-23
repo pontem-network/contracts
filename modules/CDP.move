@@ -5,6 +5,7 @@ module Auction {
     use 0x1::Dfinance;
     use 0x1::Account;
     use 0x1::Signer;
+    use 0x1::Event;
 
     resource struct T<Lot, For> {
         lot: Dfinance::T<Lot>,
@@ -14,19 +15,51 @@ module Auction {
         ends_at: u64
     }
 
-    public fun create<Lot, For>(
+    struct AuctionCreatedEvent<Lot, For> {
+        owner: address,
+        ends_at: u64,
+        lot_amount: u128,
+        start_price: u128,
+    }
+
+    struct BidPlacedEvent<Lot, For> {
+        owner: address,
+        bidder: address,
+        bid_amount: u128
+    }
+
+    struct AuctionEndEvent<Lot, For> {
+        owner: address,
+        bidder: address,
+        bid_amount: u128
+    }
+
+    public fun create<Lot: copyable, For: copyable>(
         account: &signer,
         start_price: u128,
         lot: Dfinance::T<Lot>,
         ends_at: u64
     ) {
+        let owner = Signer::address_of(account);
+        let lot_amount = Dfinance::value(&lot);
+
         move_to<T<Lot, For>>(account, T {
             lot,
             ends_at,
             start_price,
             max_bid: Dfinance::zero<For>(),
-            bidder: Signer::address_of(account)
+            bidder: owner
         });
+
+        Event::emit<AuctionCreatedEvent<Lot, For>>(
+            account,
+            AuctionCreatedEvent {
+                owner,
+                ends_at,
+                lot_amount,
+                start_price,
+            }
+        );
     }
 
     /// Check whether someone has published an auction for specific ticker
@@ -48,7 +81,7 @@ module Auction {
     }
 
     /// Place a bid for specific auction at address
-    public fun place_bid<Lot, For>(
+    public fun place_bid<Lot: copyable, For: copyable>(
         account: &signer,
         auction_owner: address,
         bid: Dfinance::T<For>
@@ -74,10 +107,23 @@ module Auction {
 
         // and changing the owner of current bid
         auction.bidder = bidder;
+
+        Event::emit<BidPlacedEvent<Lot, For>>(
+            account,
+            BidPlacedEvent {
+                bidder,
+                owner: auction_owner,
+                bid_amount: bid_amt
+            }
+        );
     }
 
     /// End auction: destroy resource, give lot to bidder and bid to owner
-    public fun end_auction<Lot, For>(account: &signer) acquires T {
+    public fun end_auction<Lot: copyable, For: copyable>(
+        account: &signer
+    ) acquires T {
+
+        let owner = Signer::address_of(account);
 
         let T {
             lot,
@@ -85,12 +131,21 @@ module Auction {
             bidder,
             start_price: _,
             ends_at: _
-        } = move_from<T<Lot, For>>(Signer::address_of(account));
+        } = move_from<T<Lot, For>>(owner);
+
+        let bid_amount = Dfinance::value(&max_bid);
 
         Account::deposit_to_sender(account, max_bid);
         Account::deposit(account, bidder, lot);
 
-        // emit event ... lalala-ba-dum-tss
+        Event::emit<AuctionEndEvent<Lot, For>>(
+            account,
+            AuctionEndEvent {
+                owner,
+                bidder,
+                bid_amount
+            }
+        );
     }
 }
 
@@ -168,7 +223,7 @@ module CDP {
             lender,
             collateral,
             offered_amount,
-            current_rate,
+            current_rate: _,
             margin_call_rate,
         } = move_from<T<Offered, Collateral>>(borrower);
 
@@ -181,7 +236,7 @@ module CDP {
             0 // TODO
         );
 
-        // let current_rate = Oracle::get_price<Offered, Collateral>();
+        let current_rate = Oracle::get_price<Offered, Collateral>();
 
         Event::emit<OfferClosedEvent<Offered, Collateral>>(
             account,
