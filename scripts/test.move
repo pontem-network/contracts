@@ -118,8 +118,8 @@ script {
                 offered_amt
             ) = CDP::get_deal_details<ETH, BTC>(Signer::address_of(&usr_two));
 
-            Debug::print<u64>(&margin_call_at);
-            Debug::print<u64>(&current_rate);
+            Debug::print<u128>(&margin_call_at);
+            Debug::print<u128>(&current_rate);
             Debug::print<u128>(&collateral_amt);
             Debug::print<u128>(&offered_amt);
 

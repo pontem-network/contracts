@@ -1,6 +1,6 @@
 {
     "network": "dfinance",
-    "sender": "0x1",
+    "sender": "wallet12tg20s9g4les55vfvnumlkg0a5zk825py9j0ha",
     "modulesPath": "./modules",
     "stdlibPath": "./stdlib"
 }

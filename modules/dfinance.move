@@ -135,5 +135,7 @@ module Dfinance {
     native public fun create_signer(addr: address): signer;
 
     native public fun destroy_signer(sig: signer);
+
+    
 }
 }

@@ -73,12 +73,15 @@ module Token {
         Account::deposit(account, creator, token_resource);
 
         // finally fire the TokenEmitted event
-        Event::emit<TokenCreatedEvent>(account, TokenCreatedEvent {
-            total_supply,
-            decimals,
-            creator,
-            denom
-        });
+        Event::emit<TokenCreatedEvent>(
+            account,
+            TokenCreatedEvent {
+                total_supply,
+                decimals,
+                creator,
+                denom
+            }
+        );
     }
 }
 
