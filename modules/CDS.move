@@ -10,8 +10,13 @@ address 0x1 {
 // 1. sXFI must be present in Oracle module Oracle::get_price<sXFI, ETH>
 // 2.
 
+module SXFI {
+    struct T {}
+}
+
 module CDS {
 
+    use 0x1::SXFI::T as SXFI;
     use 0x1::Signer;
     use 0x1::Account;
     use 0x1::Dfinance;
@@ -63,8 +68,7 @@ module CDS {
 
         // CALCULATE RESULTS
 
-        let sxfi = mint_sxfi(amount); // can only be minted by 0x1
-                                      // pool of sxfi need to be existent
+        let amount = 10000;
 
         // formulae for sXFI:
         // +-------------------------------+
@@ -74,8 +78,13 @@ module CDS {
         // ETH_SXFI - rate
         // LTV - safe rate (below 100)
 
+
+        let sxfi = mint_sxfi(amount); // can only be minted by 0x1
+                                      // pool of sxfi need to be existent
+
+
         Account::deposit_to_sender<Dfinance::Token<Token>>(account, token);
-        Account::deposit_to_sender<Dfinance::T<SXFI>>(account, sxfi);
+        Account::deposit_to_sender<SXFI>(account, sxfi);
 
         // Event::emit<CDS_DEAL_MADE>
         // Event::emit<CDS_TOKEN_ISSUED>
