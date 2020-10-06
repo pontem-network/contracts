@@ -8,9 +8,8 @@ script {
         Self,
     };
 
-
     fun main(account: &signer) {
-        let my_tok = create_token<u64>(account, 100, 0, b"mytok");
+        let my_tok = create_token<u64>( account, 100, 0, b"mytok" );
         Account::deposit_to_sender<Token<u64>>(account, my_tok);
 
         Debug::print<u128>(&Dfinance::total_supply<Token<u64>>());
