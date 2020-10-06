@@ -18,7 +18,7 @@ module Token {
     use 0x1::Signer;
     use 0x1::Event;
 
-    const DECIMALS_MIN : u8 = 8;
+    const DECIMALS_MIN : u8 = 0;
     const DECIMALS_MAX : u8 = 18;
 
     /// Token resource. Must be used with custom token type. Which means
