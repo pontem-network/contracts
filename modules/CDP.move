@@ -6,6 +6,22 @@ address 0x1 {
 //
 
 
+// DEPRECATED.
+// WHOOPSIE-DOOPSIE.
+
+// 1. sXFI
+// 2. CDP
+
+// - 1 | 2 | 1 - //
+// - 2 | 1 | 2 - //
+
+// CDP - exchange ETH for sXFI - OVER COLLATERIZED DEAL;
+// Can be refilled, can be returned (deal is closed);
+// Can be turned into CDS;
+//
+// User can choose his collateral and choose how much money he wants
+// Can refill,
+
 module CDP {
 
     use 0x1::Auction;
