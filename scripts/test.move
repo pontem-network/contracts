@@ -46,38 +46,58 @@ module Steps {
 }
 
 /// signer: 0x1
-/// signer: 0x2
-/// signer: 0x3
-/// signer: 0x11
-/// signer: 0x12
-/// signer: 0x13
 script {
-    // standard library
-    use 0x1::Debug;
-    //    use 0x1::Signer;
-    //    use 0x1::Account;
     use 0x1::Dfinance;
     use 0x1::Coins::{ETH, BTC};
-    // custom dependencies
-//    use 0x1::Auction;
-    use 0x1::Oracle;
-    //    use 0x1::CDP;
+
+    fun register_coins(std_acc: &signer) {
+        Dfinance::register_coin<ETH>(std_acc, b"eth", 18);
+        Dfinance::register_coin<BTC>(std_acc, b"btc", 10);
+    }
+}
+
+/// signer: 0x2
+/// signer: 0x3
+script {
+    use 0x1::Debug;
 
     use 0x3::Steps;
 
-    fun main(std_acc: &signer, usr_one: &signer, usr_two: &signer,
-             bidder1: &signer, bidder2: &signer, bidder3: &signer) {
-        Dfinance::register_coin<ETH>(std_acc, b"eth", 18);
-        Dfinance::register_coin<BTC>(std_acc, b"btc", 10);
-
+    fun mint_coins_to_balances(usr_one: &signer, usr_two: &signer) {
         let (eth_balance, btc_balance) = Steps::mint_coins_and_put_them_to_sender_balance(usr_one, usr_two);
         Debug::print<u128>(&eth_balance);
         Debug::print<u128>(&btc_balance);
+    }
+}
 
-        Steps::give_some_etherium_to_bidders(bidder1, bidder2, bidder3);
+/// price: eth_btc 100000000
+/// price: btc_eth 10000
+script {
+    // standard library
+//    use 0x1::Debug;
+    //    use 0x1::Signer;
+    //    use 0x1::Account;
+//    use 0x1::Dfinance;
+//    use 0x1::Coins::{ETH, BTC};
+    // custom dependencies
+//    use 0x1::Auction;
+//    use 0x1::Oracle;
+    //    use 0x1::CDP;
 
-        Oracle::init_price<ETH, BTC>(std_acc, 100000000);
-        Oracle::init_price<BTC, ETH>(std_acc, 10000);
+//    use 0x3::Steps;
+
+    fun main() {
+//        Dfinance::register_coin<ETH>(std_acc, b"eth", 18);
+//        Dfinance::register_coin<BTC>(std_acc, b"btc", 10);
+//
+//        let (eth_balance, btc_balance) = Steps::mint_coins_and_put_them_to_sender_balance(usr_one, usr_two);
+//        Debug::print<u128>(&eth_balance);
+//        Debug::print<u128>(&btc_balance);
+//
+//        Steps::give_some_etherium_to_bidders(bidder1, bidder2, bidder3);
+//
+//        Oracle::init_price<ETH, BTC>(std_acc, 100000000);
+//        Oracle::init_price<BTC, ETH>(std_acc, 10000);
 
         //        CDP::create_offer<ETH, BTC>(
 //            usr_one,
