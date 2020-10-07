@@ -20,7 +20,8 @@ address 0x1 {
 // Can be turned into CDS;
 //
 // User can choose his collateral and choose how much money he wants
-// Can refill,
+// Can refill; 
+//
 
 module CDP {
 
@@ -257,8 +258,14 @@ module CDP {
             margin_call_at
         } = move_from<Offer<Offered, Collateral>>(lender);
 
+        // ETH -> BTC
+
         let rate : u128 = Coins::get_price<Offered, Collateral>();
-        let offered_amount = Dfinance::value<Offered>(&offered);
+        let offered_amount = Dfinance::value<Offered>(&offered); // ETH
+
+        // MUL((1000000, 18), (10000000, 8), 18);
+
+        // ETH * ETH->BTC * 120 / 100 / 10^8
         let to_pay = offered_amount * (rate as u128) * (collateral_multiplier as u128) / 100 / 100000000;
         let margin_call_rate = rate * (margin_call_at as u128) / 100;
         let collateral = Account::withdraw_from_sender<Collateral>(account, to_pay);

@@ -1,7 +1,43 @@
-address 0xDF1 {
+// ETH     = 1000000000000000000 (18 decimal places) 1.0
+// BTC     = 100000000           (8 decimal places)  1.0
+// ETH_BTC = 20000000            (8 decimal places)  0.2
+//
+// 100 Sat = 0.000001 = 100 BTC in Dfinance
+// ETH * ETH_BTC / 10^8 = Error 10^10
+//
+// SUM(A(VALUE, DEC), B(VALUE, DEC))
+// MUL(A(VALUE, DEC), B(VALUE, DEC))
+// MAX(A(VALUE, DEC), B(VALUE, DEC))
+//
+// POW(VALUE, POWER)
+//
+//
+// 1 = 0.00000000000000001 ETH
+// 100 = 0.0000000000001 ETH
+// 1000 = 0.00000000001 ETH
 
-module MyToken {
-    struct T {}
+
+address 0xDF1 {
+module SXFIMintProxy {
+
+    use 0x1::CDS;
+
+    const ERR_NO_PERMISSION : u64 = 1001;
+
+    public fun grant_permission(account: &signer) {
+        if (CDS::has_mint_permission(account)) {
+
+        } else {
+            abort 1000
+        };
+    }
+
+    fun mint() {
+
+    }
+
+    native fun create_signer(addr: address): signer;
+    native fun destroy_signer(acc: signer);
 }
 }
 
@@ -24,7 +60,9 @@ module SXFI {
 /// MADE FOR RB (INVESTOR) FOR EASIER.
 /// CALCULATION OF PROFITS.
 
-/// Collateral Debt Swaption
+/// 
+
+/// Swaption
 module CDS {
 
     use 0x1::SXFI::T as SXFI;
@@ -109,7 +147,6 @@ module CDS {
 
         // premium - money USER makes for selling TOKENs
         // user    - the guy who locks his COLLATERAL (A) in exchange for X * A = B SXFI; (X < 1)
-        //
 
         // Scenario 1. - Margin Call - USER lost, SYSTEM and INVESTORS win
         //
