@@ -1,13 +1,19 @@
 script {
     use 0x1::Math;
+//    use 0x1::Debug;
 
     fun main() {
-        let val1 = Math::val(12000, 18);
-        let val2 = Math::val(20, 15);
+        let btc1 = Math::create_from_decimal(1, 2); // 0.01
+        let btc2 = Math::create_from_decimal(2, 3);  // 0.002
+        let sum = Math::add(btc1, btc2);  // 0.012 or (12, 3)
+        0x1::Debug::print(&Math::as_u256(copy sum));
+        0x1::Debug::print(&Math::as_scaled_u128(copy sum, 3));
 
-        let expected = 32000;
-        let actual = Math::sum(val1, val2);
+        let btc = Math::create_from_decimal(1, 2); // 0.01
+        let btc_eth = Math::create_from_u128(10); // 10
 
-        assert(expected == Math::with_decimals(actual, 18), 401);
+        let eth = Math::mul(btc, btc_eth); // 0.1 or (1000000000000000(18 signs), 18)
+        0x1::Debug::print(&Math::as_scaled_u128(copy eth, 1)); // 1
+        0x1::Debug::print(&Math::as_scaled_u128(copy eth, 2)); // 10
     }
 }
