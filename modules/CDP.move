@@ -79,49 +79,6 @@ module CDP {
         initiative: address
     }
 
-//    public fun finish_and_create_auction<
-//        Offered: copyable,
-//        Collateral: copyable
-//    >(
-//        account: &signer,
-//        borrower: address
-//    ) acquires T {
-//        let deal_status = check_deal<Offered, Collateral>(borrower);
-//
-//        assert(deal_status == DEAL_PAST_MARGIN_CALL, ERR_DEAL_IS_OKAY);
-//
-//        let T {
-//            lender,
-//            collateral,
-//            offered_amount,
-//            current_rate: _,
-//            margin_call_rate,
-//        } = move_from<T<Offered, Collateral>>(borrower);
-//
-//        assert(Signer::address_of(account) == lender, ERR_NOT_LENDER);
-//
-//        Auction::create<Collateral, Offered>(
-//            account,
-//            offered_amount,
-//            collateral,
-//            0 // TODO
-//);
-//
-//        let current_rate = Coins::get_price<Offered, Collateral>();
-//
-//        Event::emit<OfferClosedEvent<Offered, Collateral>>(
-//            account,
-//            OfferClosedEvent {
-//                lender,
-//                borrower,
-//                current_rate,
-//                offered_amount,
-//                margin_call_rate,
-//                initiative: lender
-//            }
-//        );
-//    }
-
     public fun finish_and_release_funds<
         Offered: copyable,
         Collateral: copyable

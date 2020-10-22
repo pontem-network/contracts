@@ -29,6 +29,19 @@ module Math {
         Number { value: U256::from_u128(scaled) }
     }
 
+    public fun create_from_u128_decimal(val: u128, decimals: u8): Number {
+        assert(decimals <= MAX_DECIMALS, MORE_THAN_18_DECIMALS_ERROR);
+
+        let scaling_factor = pow_10(MAX_DECIMALS - decimals);
+        // val is u64
+        // scaling factor could be 10^18
+        // multiple = <= u64 * <= u64 = <= u128
+        // could overflow if val and decimals is too big
+        let scaled = val * scaling_factor;
+
+        Number { value: U256::from_u128(scaled) }
+    }
+
     public fun pow(base: u64, exp: u8): u128 {
         let result_val = 1u128;
         let i = 0;
