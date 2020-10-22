@@ -9,7 +9,6 @@ module CDPOffer {
 
     const ERR_INCORRECT_LTV: u64 = 1;
     const ERR_NO_ORACLE_PRICE: u64 = 2;
-    const ERR_OFFER_DOES_NOT_EXIST: u64 = 5;
     const ERR_OFFER_ALREADY_EXISTS: u64 = 6;
     const ERR_NOT_ENOUGH_CURRENCY_AVAILABLE: u64 = 7;
 
@@ -68,8 +67,6 @@ module CDPOffer {
         offer_address: address,
         amount: Dfinance::T<Offered>
     ) acquires T {
-        assert(exists<T<Offered, Collateral>>(offer_address), ERR_OFFER_DOES_NOT_EXIST);
-
         let offer = borrow_global_mut<T<Offered, Collateral>>(offer_address);
         let amount_deposited_num = Dfinance::value(&amount);
         Dfinance::deposit<Offered>(&mut offer.available_amount, amount);
@@ -84,8 +81,6 @@ module CDPOffer {
         account: &signer,
         amount: u128
     ): Dfinance::T<Offered> acquires T {
-        assert(exists<T<Offered, Collateral>>(Signer::address_of(account)), ERR_OFFER_DOES_NOT_EXIST);
-
         let offer = borrow_global_mut<T<Offered, Collateral>>(Signer::address_of(account));
         let borrowed = Dfinance::withdraw<Offered>(&mut offer.available_amount, amount);
 
