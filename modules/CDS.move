@@ -20,17 +20,17 @@
 address 0xDF1 {
 module SXFIMintProxy {
 
-    use 0x1::CDS;
+//    use 0x1::CDS;
 
     const ERR_NO_PERMISSION : u64 = 1001;
 
-    public fun grant_permission(account: &signer) {
-        if (CDS::has_mint_permission(account)) {
-
-        } else {
-            abort 1000
-        };
-    }
+//    public fun grant_permission(account: &signer) {
+//        if (CDS::has_mint_permission(account)) {
+//
+//        } else {
+//            abort 1000
+//        };
+//    }
 
     fun mint() {
 

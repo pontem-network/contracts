@@ -1,5 +1,4 @@
 address 0x1 {
-
 // Final thoughts on CDP implementation
 // 1. Resulting currency must be "cut" to its decimals
 // 2. Decimals for deal are decided by formula: MIN(8, CURR1dec, CURR2dec).
@@ -24,24 +23,23 @@ address 0x1 {
 //
 
 module CDP {
-
-    use 0x1::Auction;
+//    use 0x1::Auction;
     use 0x1::Coins;
     use 0x1::Dfinance;
     use 0x1::Account;
     use 0x1::Signer;
     use 0x1::Event;
 
-    const ORACLE_DECIMALS : u8 = 8;
+    const ORACLE_DECIMALS: u8 = 8;
 
-    const ERR_DEAL_IS_OKAY : u64 = 200;
-    const ERR_NO_RATE : u64 = 401;
-    const ERR_NOT_LENDER : u64 = 402;
-    const ERR_INCORRECT_ARGUMENT : u64 = 400;
+    const ERR_DEAL_IS_OKAY: u64 = 200;
+    const ERR_NO_RATE: u64 = 401;
+    const ERR_NOT_LENDER: u64 = 402;
+    const ERR_INCORRECT_ARGUMENT: u64 = 400;
 
-    const DEAL_NOT_MADE : u8 = 0;
-    const DEAL_OKAY : u8 = 1;
-    const DEAL_PAST_MARGIN_CALL : u8 = 2;
+    const DEAL_NOT_MADE: u8 = 0;
+    const DEAL_OKAY: u8 = 1;
+    const DEAL_PAST_MARGIN_CALL: u8 = 2;
 
     /// CDP resource
     resource struct T<Offered, Collateral> {
@@ -81,49 +79,48 @@ module CDP {
         initiative: address
     }
 
-    public fun finish_and_create_auction<
-        Offered: copyable,
-        Collateral: copyable
-    >(
-        account: &signer,
-        borrower: address
-    ) acquires T {
-
-        let deal_status = check_deal<Offered, Collateral>(borrower);
-
-        assert(deal_status == DEAL_PAST_MARGIN_CALL, ERR_DEAL_IS_OKAY);
-
-        let T {
-            lender,
-            collateral,
-            offered_amount,
-            current_rate: _,
-            margin_call_rate,
-        } = move_from<T<Offered, Collateral>>(borrower);
-
-        assert(Signer::address_of(account) == lender, ERR_NOT_LENDER);
-
-        Auction::create<Collateral, Offered>(
-            account,
-            offered_amount,
-            collateral,
-            0 // TODO
-        );
-
-        let current_rate = Coins::get_price<Offered, Collateral>();
-
-        Event::emit<OfferClosedEvent<Offered, Collateral>>(
-            account,
-            OfferClosedEvent {
-                lender,
-                borrower,
-                current_rate,
-                offered_amount,
-                margin_call_rate,
-                initiative: lender
-            }
-        );
-    }
+//    public fun finish_and_create_auction<
+//        Offered: copyable,
+//        Collateral: copyable
+//    >(
+//        account: &signer,
+//        borrower: address
+//    ) acquires T {
+//        let deal_status = check_deal<Offered, Collateral>(borrower);
+//
+//        assert(deal_status == DEAL_PAST_MARGIN_CALL, ERR_DEAL_IS_OKAY);
+//
+//        let T {
+//            lender,
+//            collateral,
+//            offered_amount,
+//            current_rate: _,
+//            margin_call_rate,
+//        } = move_from<T<Offered, Collateral>>(borrower);
+//
+//        assert(Signer::address_of(account) == lender, ERR_NOT_LENDER);
+//
+//        Auction::create<Collateral, Offered>(
+//            account,
+//            offered_amount,
+//            collateral,
+//            0 // TODO
+//);
+//
+//        let current_rate = Coins::get_price<Offered, Collateral>();
+//
+//        Event::emit<OfferClosedEvent<Offered, Collateral>>(
+//            account,
+//            OfferClosedEvent {
+//                lender,
+//                borrower,
+//                current_rate,
+//                offered_amount,
+//                margin_call_rate,
+//                initiative: lender
+//            }
+//        );
+//    }
 
     public fun finish_and_release_funds<
         Offered: copyable,
@@ -132,7 +129,6 @@ module CDP {
         account: &signer,
         borrower: address
     ) acquires T {
-
         let deal_status = check_deal<Offered, Collateral>(borrower);
 
         assert(deal_status == DEAL_PAST_MARGIN_CALL, ERR_DEAL_IS_OKAY);
@@ -147,6 +143,7 @@ module CDP {
 
         assert(Signer::address_of(account) == lender, ERR_NOT_LENDER);
 
+        // deposit()
         Account::deposit_to_sender<Collateral>(account, collateral);
 
         let current_rate = Coins::get_price<Offered, Collateral>();
@@ -221,7 +218,6 @@ module CDP {
     public fun check_deal<Offered, Collateral>(
         borrower: address
     ): u8 acquires T {
-
         if (!exists<T<Offered, Collateral>>(borrower)) {
             return DEAL_NOT_MADE
         };
@@ -251,7 +247,6 @@ module CDP {
         account: &signer,
         lender: address
     ) acquires Offer {
-
         let Offer {
             offered,
             collateral_multiplier,
@@ -260,7 +255,7 @@ module CDP {
 
         // ETH -> BTC
 
-        let rate : u128 = Coins::get_price<Offered, Collateral>();
+        let rate: u128 = Coins::get_price<Offered, Collateral>();
         let offered_amount = Dfinance::value<Offered>(&offered); // ETH
 
         // MUL((1000000, 18), (10000000, 8), 18);
@@ -309,8 +304,7 @@ module CDP {
         offered: Dfinance::T<Offered>,
         collateral_multiplier: u8, // percent value * 100
         margin_call_at: u8         // percent value * 100
-    ) {
-
+) {
         let offered_amount = Dfinance::value<Offered>(&offered);
 
         assert(Coins::has_price<Offered, Collateral>(), ERR_NO_RATE);
@@ -320,8 +314,8 @@ module CDP {
         // is greater than margin call (that's a must!)
         assert(
             collateral_multiplier > margin_call_at
-            && collateral_multiplier > 100
-        , ERR_INCORRECT_ARGUMENT);
+                    && collateral_multiplier > 100
+            , ERR_INCORRECT_ARGUMENT);
 
         move_to<Offer<Offered, Collateral>>(
             account,
@@ -359,5 +353,4 @@ module CDP {
         )
     }
 }
-
 }
