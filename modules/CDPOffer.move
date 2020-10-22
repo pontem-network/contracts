@@ -65,18 +65,14 @@ module CDPOffer {
 
     public fun deposit_amount<Offered: copyable, Collateral: copyable>(
         account: &signer,
+        offer_address: address,
         amount: Dfinance::T<Offered>
     ) acquires T {
-        assert(exists<T<Offered, Collateral>>(Signer::address_of(account)), ERR_OFFER_DOES_NOT_EXIST);
+        assert(exists<T<Offered, Collateral>>(offer_address), ERR_OFFER_DOES_NOT_EXIST);
 
-        let T { available_amount, ltv, interest_rate } = move_from<T<Offered, Collateral>>(Signer::address_of(account));
+        let offer = borrow_global_mut<T<Offered, Collateral>>(offer_address);
         let amount_deposited_num = Dfinance::value(&amount);
-        let available_amount_changed = Dfinance::join<Offered>(available_amount, amount);
-        move_to(account, T<Offered, Collateral> {
-            available_amount: available_amount_changed,
-            ltv,
-            interest_rate
-        });
+        Dfinance::deposit<Offered>(&mut offer.available_amount, amount);
 
         Event::emit(
             account,

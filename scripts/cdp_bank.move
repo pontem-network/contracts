@@ -28,7 +28,7 @@ script {
     }
 }
 
-/// signer: 0x101
+/// signer: 0x102
 script {
     use 0x1::CDPOffer;
     use 0x1::Dfinance;
@@ -38,7 +38,8 @@ script {
 
     fun add_more_xfi_to_bank(signer1: &signer) {
         let num_of_xfi_added = Dfinance::mint<XFI>(100);
-        CDPOffer::deposit_amount<XFI, ETH>(signer1, num_of_xfi_added);
+        let bank_address = 0x101;
+        CDPOffer::deposit_amount<XFI, ETH>(signer1, bank_address, num_of_xfi_added);
     }
 }
 
