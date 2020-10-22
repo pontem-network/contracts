@@ -1,9 +1,11 @@
 module CDPOffer {
-    use 0x1::Math;
     use 0x1::Coins;
+    use 0x1::Dfinance;
 
     use 0x1::Signer;
     use 0x1::Event;
+
+    const MAX_LTV: u64 = 6700;  // 67.00%
 
     const INCORRECT_LTV_ERROR: u64 = 1;
     const NO_ORACLE_PRICE_ERROR: u64 = 2;
@@ -12,76 +14,90 @@ module CDPOffer {
     const NOT_ENOUGH_CURRENCY_AVAILABLE_ERROR: u64 = 7;
 
     resource struct T<Offered: copyable, Collateral: copyable> {
-        available_currency: u128,
-        // <= 0.66
-        ltv: Math::Number,
-        interest_rate: Math::Number,
+        available_amount: Dfinance::T<Offered>,
+        // < 6700
+        ltv: u64,
+        // 2 signs after comma
+        interest_rate: u64,
+        // 2 signs after comma
+
     }
 
     struct CDPOfferCreatedEvent<Offered: copyable, Collateral: copyable> {
-        available_currency: u128,
-        // <= 0.66
-        ltv: Math::Number,
-        interest_rate: Math::Number,
+        available_amount: u128,
+        // < 6700
+        ltv: u64,
+        interest_rate: u64,
     }
 
-    struct CDPOfferCurrencyRefilled<Offered: copyable, Collateral: copyable> {
-        currency: u128,
+    struct CDPOfferCurrencyDeposited<Offered: copyable, Collateral: copyable> {
+        amount: u128,
     }
 
     struct CDPOfferCurrencyBorrowed<Offered: copyable, Collateral: copyable> {
-        currency: u128,
+        amount: u128,
     }
 
-    public fun create<Offered: copyable, Collateral: copyable>(account: &signer, available_currency: u128, ltv: Math::Number, interest_rate: Math::Number) {
+    public fun create<Offered: copyable, Collateral: copyable>(
+        account: &signer,
+        available_amount: Dfinance::T<Offered>,
+        ltv: u64,
+        interest_rate: u64
+    ) {
         assert(!exists<T<Offered, Collateral>>(Signer::address_of(account)), OFFER_ALREADY_EXISTS);
-        // copy could be removed with U256::lt method implemented
-        assert(Math::lt(copy ltv, Math::create_from_decimal(67, 2)), INCORRECT_LTV_ERROR);
+
+        assert(ltv < MAX_LTV, INCORRECT_LTV_ERROR);
         assert(Coins::has_price<Offered, Collateral>(), NO_ORACLE_PRICE_ERROR);
 
-        let offer = T<Offered, Collateral> {
-            available_currency, ltv: copy ltv, interest_rate: copy interest_rate
-        };
+        let amount_num = Dfinance::value(&available_amount);
+        let offer = T<Offered, Collateral> { available_amount, ltv, interest_rate };
         move_to(account, offer);
 
         Event::emit(
             account,
             CDPOfferCreatedEvent<Offered, Collateral> {
-                available_currency,
+                available_amount: amount_num,
                 ltv,
                 interest_rate,
             }
         );
     }
 
-    public fun refill<Offered: copyable, Collateral: copyable>(account: &signer, currency: u128) acquires T {
+    public fun deposit_amount<Offered: copyable, Collateral: copyable>(
+        account: &signer,
+        amount: Dfinance::T<Offered>
+    ) acquires T {
         assert(exists<T<Offered, Collateral>>(Signer::address_of(account)), OFFER_DOES_NOT_EXIST);
 
-        let T { available_currency, ltv, interest_rate } = move_from<T<Offered, Collateral>>(Signer::address_of(account));
-        let available_currency = available_currency + currency;
-        move_to(account, T<Offered, Collateral> { available_currency, ltv, interest_rate });
+        let T { available_amount, ltv, interest_rate } = move_from<T<Offered, Collateral>>(Signer::address_of(account));
+        let amount_deposited_num = Dfinance::value(&amount);
+        let available_amount_changed = Dfinance::join<Offered>(available_amount, amount);
+        move_to(account, T<Offered, Collateral> {
+            available_amount: available_amount_changed,
+            ltv,
+            interest_rate
+        });
 
         Event::emit(
             account,
-            CDPOfferCurrencyRefilled<Offered, Collateral> { currency }
+            CDPOfferCurrencyDeposited<Offered, Collateral> { amount: amount_deposited_num }
         );
     }
 
-    public fun borrow_currency<Offered: copyable, Collateral: copyable>(account: &signer, currency: u128) acquires T {
+    public fun borrow_amount<Offered: copyable, Collateral: copyable>(
+        account: &signer,
+        amount: u128
+    ): Dfinance::T<Offered> acquires T {
         assert(exists<T<Offered, Collateral>>(Signer::address_of(account)), OFFER_DOES_NOT_EXIST);
-        assert(
-            currency <= borrow_global<T<Offered, Collateral>>(Signer::address_of(account)).available_currency,
-            NOT_ENOUGH_CURRENCY_AVAILABLE_ERROR
-        );
 
-        let T { available_currency, ltv, interest_rate } = move_from<T<Offered, Collateral>>(Signer::address_of(account));
-        let available_currency = available_currency - currency;
-        move_to(account, T<Offered, Collateral> { available_currency, ltv, interest_rate });
+        let offer = borrow_global_mut<T<Offered, Collateral>>(Signer::address_of(account));
+        let borrowed = Dfinance::withdraw<Offered>(&mut offer.available_amount, amount);
 
         Event::emit(
             account,
-            CDPOfferCurrencyBorrowed<Offered, Collateral> { currency }
+            CDPOfferCurrencyBorrowed<Offered, Collateral> { amount }
         );
+        borrowed
     }
 }
 

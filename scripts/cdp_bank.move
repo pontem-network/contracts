@@ -1,42 +1,57 @@
+/// signer: 0x1
+script {
+    use 0x1::Dfinance;
+    use 0x1::Coins::ETH;
+    use 0x1::XFI::T as XFI;
+
+    fun register_coins(standard_account: &signer) {
+        Dfinance::register_coin<ETH>(standard_account, b"eth", 18);
+        Dfinance::register_coin<XFI>(standard_account, b"xfi", 10);
+    }
+}
+
 /// signer: 0x101
 /// price: xfi_eth 100
 script {
     use 0x1::CDPOffer;
-    use 0x1::Math;
+    use 0x1::Dfinance;
 
     use 0x1::Coins::ETH;
     use 0x1::XFI::T as XFI;
 
     fun create_bank_for_signer_1(signer1: &signer) {
-        let num_of_btc_available_for_cdp = 100;
-        let ltv = Math::create_from_decimal(66, 2);  // 0.66 (should always be < 0.67)
-        let interest_rate = Math::create_from_decimal(1, 1);  // 0.1
+        let num_of_xfi_available = Dfinance::mint<XFI>(100);
+        let ltv = 6600;  // 66% (should always be < 0.67)
+        let interest_rate = 1000;  // 10%
 
-        CDPOffer::create<XFI, ETH>(signer1, num_of_btc_available_for_cdp, ltv, interest_rate);
+        CDPOffer::create<XFI, ETH>(signer1, num_of_xfi_available, ltv, interest_rate);
     }
 }
 
 /// signer: 0x101
 script {
     use 0x1::CDPOffer;
+    use 0x1::Dfinance;
 
     use 0x1::Coins::ETH;
     use 0x1::XFI::T as XFI;
 
-    fun add_more_currency_to_bank(signer1: &signer) {
-        let num_of_added_btc = 100;
-        CDPOffer::refill<XFI, ETH>(signer1, num_of_added_btc);
+    fun add_more_xfi_to_bank(signer1: &signer) {
+        let num_of_xfi_added = Dfinance::mint<XFI>(100);
+        CDPOffer::deposit_amount<XFI, ETH>(signer1, num_of_xfi_added);
     }
 }
 
 /// signer: 0x101
 script {
     use 0x1::CDPOffer;
+    use 0x1::Account;
 
     use 0x1::Coins::ETH;
     use 0x1::XFI::T as XFI;
 
-    fun create_cdp_based_on_signer_1_cdp_offer(lender_signer: &signer) {
-        CDPOffer::borrow_currency<XFI, ETH>(lender_signer, 50);
+    fun borrow_some_xfi(signer: &signer) {
+        let borrowed = CDPOffer::borrow_amount<XFI, ETH>(signer, 50);
+        Account::deposit_to_sender<XFI>(signer, borrowed);
     }
 }
