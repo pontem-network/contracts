@@ -7,17 +7,13 @@ module CDP2 {
     use 0x1::Signer;
     use 0x1::Event;
 
-    const MAX_LTV: u64 = 6700;  // 67.00%
+    const MAX_LTV: u64 = 6600;  // 66.00%
     const SOFT_MARGIN_CALL: u64 = 150;
     const HARD_MARGIN_CALL: u64 = 130;
 
     const ERR_INCORRECT_LTV: u64 = 1;
     const ERR_NO_ORACLE_PRICE: u64 = 2;
-    const ERR_OFFER_DOES_NOT_EXIST: u64 = 5;
-    const ERR_DEAL_DOES_NOT_EXIST: u64 = 51;
-    const ERR_OFFER_ALREADY_EXISTS: u64 = 6;
-    const ERR_CDP_ALREADY_EXISTS: u64 = 61;
-    const ERR_NOT_ENOUGH_CURRENCY_AVAILABLE: u64 = 7;
+    const ERR_HARD_MC_HAS_NOT_OCCURRED: u64 = 3;
 
     resource struct Offer<Offered: copyable, Collateral: copyable> {
         available_amount: Dfinance::T<Offered>,
@@ -29,10 +25,18 @@ module CDP2 {
 
     resource struct Deal<Offered, Collateral> {
         collateral: Dfinance::T<Collateral>,
-        offer_owner_address: address,
+        lender: address,
         ltv: u64,
         soft_mc: u128,
         hard_mc: u128,
+    }
+
+    public fun has_deal<Offered: copyable, Collateral: copyable>(borrower: address): bool {
+        exists<Deal<Offered, Collateral>>(borrower)
+    }
+
+    public fun has_offer<Offered: copyable, Collateral: copyable>(lender: address): bool {
+        exists<Offer<Offered, Collateral>>(lender)
     }
 
     public fun create_offer<Offered: copyable, Collateral: copyable>(
@@ -41,10 +45,8 @@ module CDP2 {
         ltv: u64,
         interest_rate: u64
     ) {
-        assert(ltv < MAX_LTV, ERR_INCORRECT_LTV);
+        assert(ltv <= MAX_LTV, ERR_INCORRECT_LTV);
         assert(Coins::has_price<Offered, Collateral>(), ERR_NO_ORACLE_PRICE);
-
-        assert(!exists<Offer<Offered, Collateral>>(Signer::address_of(account)), ERR_OFFER_ALREADY_EXISTS);
 
         let amount_num = Dfinance::value(&available_amount);
         let offer = Offer<Offered, Collateral> { available_amount, ltv, interest_rate };
@@ -56,71 +58,69 @@ module CDP2 {
                 available_amount: amount_num,
                 ltv,
                 interest_rate,
+                lender: Signer::address_of(account),
             }
         );
     }
 
     public fun deposit_amount_to_offer<Offered: copyable, Collateral: copyable>(
         account: &signer,
-        offer_owner_address: address,
+        lender: address,
         amount: Dfinance::T<Offered>
     ) acquires Offer {
-        let offer = borrow_global_mut<Offer<Offered, Collateral>>(offer_owner_address);
+        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
         let amount_deposited_num = Dfinance::value(&amount);
         Dfinance::deposit<Offered>(&mut offer.available_amount, amount);
 
         Event::emit(
             account,
-            OfferDepositedEvent<Offered, Collateral> { amount: amount_deposited_num }
+            OfferDepositedEvent<Offered, Collateral> {
+                amount: amount_deposited_num,
+                lender,
+            }
         );
     }
 
     public fun make_deal<Offered: copyable, Collateral: copyable>(
-        borrower_account: &signer,
-        offer_owner_address: address,
+        account: &signer,
+        lender: address,
         collateral: Dfinance::T<Collateral>,
         ltv: u64
-    ): Dfinance::T<Offered>
-    acquires Offer {
+    ): Dfinance::T<Offered> acquires Offer {
         assert(
-            exists<Offer<Offered, Collateral>>(offer_owner_address),
-            ERR_OFFER_DOES_NOT_EXIST
-        );
-        assert(
-            !exists<Deal<Offered, Collateral>>(Signer::address_of(borrower_account)),
-            ERR_CDP_ALREADY_EXISTS
+            ltv <= get_offer_ltv<Offered, Collateral>(lender),
+            ERR_INCORRECT_LTV
         );
 
-        let offer_ltv = get_offer_ltv<Offered, Collateral>(offer_owner_address);
-        assert(ltv <= offer_ltv, ERR_INCORRECT_LTV);
-
-        let collaretal_value_u128 = Dfinance::value<Collateral>(&collateral);
-        let offered_amount = compute_collateral_value<Offered, Collateral>(collaretal_value_u128, ltv);
+        let collateral_value_u128 = Dfinance::value<Collateral>(&collateral);
+        let offered_amount = compute_collateral_value<Offered, Collateral>(collateral_value_u128, ltv);
 
         let offered_decimals = Dfinance::decimals<Offered>();
         let offered = withdraw_amount_from_offer<Offered, Collateral>(
-            borrower_account,
-            offer_owner_address,
-            Math::as_scaled_u128(copy offered_amount, Dfinance::decimals<Offered>())
+            account,
+            lender,
+            Math::as_scaled_u128(copy offered_amount, offered_decimals)
         );
 
         let (soft_mc, hard_mc) = compute_margin_calls(offered_amount, offered_decimals);
 
-        let borrower_address = Signer::address_of(borrower_account);
-        move_to(borrower_account, Deal<Offered, Collateral> {
-            collateral,
-            offer_owner_address: offer_owner_address,
-            ltv,
-            soft_mc,
-            hard_mc
-        });
+        let borrower = Signer::address_of(account);
+        move_to(
+            account,
+            Deal<Offered, Collateral> {
+                collateral,
+                lender,
+                ltv,
+                soft_mc,
+                hard_mc
+            });
         Event::emit(
-            borrower_account,
+            account,
             DealCreated<Offered, Collateral> {
-                offer_owner_address,
-                borrower_address,
+                lender,
+                borrower,
                 offered: Dfinance::value(&offered),
-                collateral: collaretal_value_u128,
+                collateral: collateral_value_u128,
                 ltv,
                 soft_mc,
                 hard_mc,
@@ -128,42 +128,38 @@ module CDP2 {
         offered
     }
 
-    public fun check_and_release_deal_if_margin_call_occurred<Offered: copyable, Collateral: copyable>(
-        caller_account: &signer,
-        borrower_address: address,
+    public fun release_deal_and_deposit_collateral<Offered: copyable, Collateral: copyable>(
+        account: &signer,
+        borrower: address,
     ) acquires Deal {
-        assert(
-            exists<Deal<Offered, Collateral>>(borrower_address),
-            ERR_DEAL_DOES_NOT_EXIST
-        );
+        let Deal {
+            collateral,
+            lender,
+            ltv,
+            soft_mc,
+            hard_mc
+        } = move_from<Deal<Offered, Collateral>>(borrower);
 
-        let deal = borrow_global<Deal<Offered, Collateral>>(borrower_address);
-        let collateral_value_stored = Dfinance::value(&deal.collateral);
+        let collateral_value_stored = Dfinance::value(&collateral);
         let collateral_value_unscaled = compute_collateral_value<Offered, Collateral>(
             collateral_value_stored,
             10000
         );
         // same dimension as margin calls
         let collateral_value = Math::as_scaled_u128(collateral_value_unscaled, Dfinance::decimals<Offered>());
-        if (collateral_value > deal.hard_mc) return;
-
-        // remove deal
-        let Deal {
-            collateral,
-            offer_owner_address,
-            ltv,
-            soft_mc,
-            hard_mc
-        } = move_from<Deal<Offered, Collateral>>(borrower_address);
+        assert(
+            collateral_value <= hard_mc,
+            ERR_HARD_MC_HAS_NOT_OCCURRED
+        );
 
         // deposit token
-        Account::deposit<Collateral>(caller_account, offer_owner_address, collateral);
+        Account::deposit<Collateral>(account, lender, collateral);
 
         Event::emit(
-            caller_account,
+            account,
             DealClosed<Offered, Collateral> {
-                offer_owner_address,
-                borrower_address,
+                lender,
+                borrower,
                 collateral: collateral_value_stored,
                 collateral_in_offered: collateral_value,
                 ltv,
@@ -172,22 +168,25 @@ module CDP2 {
             })
     }
 
-    fun get_offer_ltv<Offered: copyable, Collateral: copyable>(offer_address: address): u64 acquires Offer {
-        let offer = borrow_global<Offer<Offered, Collateral>>(offer_address);
+    fun get_offer_ltv<Offered: copyable, Collateral: copyable>(lender: address): u64 acquires Offer {
+        let offer = borrow_global<Offer<Offered, Collateral>>(lender);
         offer.ltv
     }
 
     fun withdraw_amount_from_offer<Offered: copyable, Collateral: copyable>(
-        borrower_account: & signer,
-        offer_address: address,
+        account: &signer,
+        lender: address,
         amount: u128
     ): Dfinance::T<Offered> acquires Offer {
-        let offer = borrow_global_mut<Offer<Offered, Collateral>>(offer_address);
+        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
         let borrowed = Dfinance::withdraw<Offered>(&mut offer.available_amount, amount);
 
         Event::emit(
-            borrower_account,
-            OfferDepositBorrowedEvent<Offered, Collateral> { amount }
+            account,
+            OfferDepositBorrowedEvent<Offered, Collateral> {
+                amount,
+                lender
+            }
         );
         borrowed
     }
@@ -208,12 +207,12 @@ module CDP2 {
         let ltv_num = Math::create_from_decimal(ltv, 4);
 
         let collateral_decimals = Dfinance::decimals<Collateral>();
-        let collaretal_value = Math::create_from_u128_decimal(collateral, collateral_decimals);
+        let collateral_value = Math::create_from_u128_decimal(collateral, collateral_decimals);
 
         let offered_amount = Math::mul(
             Math::mul(
                 exchange_rate,
-                collaretal_value
+                collateral_value
             ),
             ltv_num
         );
@@ -225,19 +224,22 @@ module CDP2 {
         // < 6700
         ltv: u64,
         interest_rate: u64,
+        lender: address,
     }
 
     struct OfferDepositedEvent<Offered: copyable, Collateral: copyable> {
         amount: u128,
+        lender: address,
     }
 
     struct OfferDepositBorrowedEvent<Offered: copyable, Collateral: copyable> {
         amount: u128,
+        lender: address,
     }
 
     struct DealCreated<Offered: copyable, Collateral: copyable> {
-        offer_owner_address: address,
-        borrower_address: address,
+        lender: address,
+        borrower: address,
         offered: u128,
         collateral: u128,
         ltv: u64,
@@ -246,8 +248,8 @@ module CDP2 {
     }
 
     struct DealClosed<Offered: copyable, Collateral: copyable> {
-        offer_owner_address: address,
-        borrower_address: address,
+        lender: address,
+        borrower: address,
         collateral: u128,
         collateral_in_offered: u128,
         ltv: u64,
