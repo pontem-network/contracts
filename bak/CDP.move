@@ -4,7 +4,6 @@ address 0x1 {
 // 2. Decimals for deal are decided by formula: MIN(8, CURR1dec, CURR2dec).
 //
 
-
 // DEPRECATED.
 // WHOOPSIE-DOOPSIE.
 
@@ -19,8 +18,7 @@ address 0x1 {
 // Can be turned into CDS;
 //
 // User can choose his collateral and choose how much money he wants
-// Can refill; 
-//
+// Can refill;
 
 module CDP {
 //    use 0x1::Auction;
