@@ -110,6 +110,7 @@ module Math {
     public fun as_u128(num: Number): u128 {
         // should fail with arithmetic error, if internal > u128
         let internal = as_u256(num);
+        0x1::Debug::print(&internal);
         let scaled = U256::div(internal, U256::from_u128(MAX_SCALING_FACTOR));
         U256::as_u128(scaled)
     }

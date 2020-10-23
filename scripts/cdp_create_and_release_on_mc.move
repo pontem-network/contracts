@@ -52,6 +52,7 @@ script {
 // 100 * 10^8
 /// price: xfi_eth 10000000000
 /// signer: 0x103
+/// current_time: 100
 script {
     use 0x1::CDP2;
     use 0x1::Dfinance;
@@ -108,6 +109,7 @@ script {
 /// price: xfi_eth 6600000000
 /// signer: 0x101
 /// signer: 0x104
+/// current_time: 200
 script {
     use 0x1::CDP2;
     use 0x1::Account;
@@ -117,7 +119,7 @@ script {
 
     fun release_collateral_as_hard_margin_call_achieved(offer_owner_signer: &signer, margin_call_check_signer: &signer) {
         let borrower_address = 0x103;
-        CDP2::release_deal_and_deposit_collateral<XFI, ETH>(margin_call_check_signer, borrower_address);
+        CDP2::release_deal_on_mc_and_deposit_collateral<XFI, ETH>(margin_call_check_signer, borrower_address);
 
         assert(Account::balance<ETH>(offer_owner_signer) == 1000000000000000000, 101);
     }
