@@ -241,7 +241,6 @@ module CDP2 {
             )
         );
         let offered_value_to_return = Math::as_scaled_u128(offered_value_to_return, offered_decimals);
-        0x1::Debug::print(&offered_value_to_return);
 
         let offered = Account::withdraw_from_sender<Offered>(account, offered_value_to_return);
         Account::deposit<Offered>(account, lender, offered);
