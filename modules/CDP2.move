@@ -2,16 +2,19 @@ address 0x1 {
 module CDP2 {
     use 0x1::Coins;
     use 0x1::Dfinance;
-    use 0x1::Math;
+    use 0x1::Math::{Self, Num, num_create, num_unpack};
     use 0x1::Account;
     use 0x1::Signer;
     use 0x1::Event;
     use 0x1::Time;
 
     const MAX_LTV: u64 = 6600;  // 66.00%
-    const SOFT_MARGIN_CALL: u64 = 150;
-    const HARD_MARGIN_CALL: u64 = 130;
+    const SOFT_MARGIN_CALL: u128 = 150;
+    const HARD_MARGIN_CALL: u128 = 130;
     const SECONDS_IN_DAY: u128 = 86400;
+    const EXCHANGE_RATE_DECIMALS: u8 = 8;
+    const LTV_DECIMALS: u8 = 4;
+    const INTEREST_RATE_DECIMALS: u8 = 4;
 
     const ERR_INCORRECT_LTV: u64 = 1;
     const ERR_NO_ORACLE_PRICE: u64 = 2;
@@ -101,17 +104,16 @@ module CDP2 {
         assert(ltv <= offer_ltv, ERR_INCORRECT_LTV);
 
         let collateral_value_u128 = Dfinance::value<Collateral>(&collateral);
-        let offered_amount = compute_collateral_value<Offered, Collateral>(collateral_value_u128, ltv);
-        let offered_decimals = Dfinance::decimals<Offered>();
+        let offered_num = compute_offered_value_for_collateral<Offered, Collateral>(collateral_value_u128, ltv);
+        let (offered_value, _) = num_unpack(copy offered_num);
 
         let offered = withdraw_amount_from_offer<Offered, Collateral>(
             account,
             offer,
             lender,
-            Math::as_scaled_u128(copy offered_amount, offered_decimals)
+            offered_value
         );
-
-        let (soft_mc, hard_mc) = compute_margin_calls(offered_amount, offered_decimals);
+        let (soft_mc, hard_mc) = compute_margin_calls(offered_num);
 
         let offered_value = Dfinance::value(&offered);
         let created_at = Time::now();
@@ -160,14 +162,14 @@ module CDP2 {
         } = move_from<Deal<Offered, Collateral>>(borrower);
 
         let collateral_value_stored = Dfinance::value(&collateral);
-        let collateral_value_unscaled = compute_collateral_value<Offered, Collateral>(
+        let offered_num = compute_offered_value_for_collateral<Offered, Collateral>(
             collateral_value_stored,
             10000
         );
         // same dimension as margin calls
-        let collateral_value = Math::as_scaled_u128(collateral_value_unscaled, Dfinance::decimals<Offered>());
+        let (offered_for_collateral, _) = num_unpack(offered_num);
         assert(
-            collateral_value <= hard_mc,
+            offered_for_collateral <= hard_mc,
             ERR_HARD_MC_HAS_NOT_OCCURRED
         );
 
@@ -176,11 +178,11 @@ module CDP2 {
 
         Event::emit(
             account,
-            DealClosedEvent<Offered, Collateral> {
+            DealClosedOnMarginCallEvent<Offered, Collateral> {
                 lender,
                 borrower,
                 collateral: collateral_value_stored,
-                collateral_in_offered: collateral_value,
+                collateral_in_offered: offered_for_collateral,
                 closed_at: Time::now(),
                 interest_rate,
                 ltv,
@@ -205,14 +207,14 @@ module CDP2 {
         } = move_from<Deal<Offered, Collateral>>(borrower);
 
         let collateral_value_stored = Dfinance::value(&collateral);
-        let collateral_value_unscaled = compute_collateral_value<Offered, Collateral>(
+        let offered_num_for_collateral = compute_offered_value_for_collateral<Offered, Collateral>(
             collateral_value_stored,
             10000
         );
         // same dimension as margin calls
-        let collateral_value = Math::as_scaled_u128(collateral_value_unscaled, Dfinance::decimals<Offered>());
+        let (offered_for_collateral, _) = num_unpack(offered_num_for_collateral);
         assert(
-            collateral_value > hard_mc,
+            offered_for_collateral > hard_mc,
             ERR_HARD_MC_HAS_OCCURRED
         );
 
@@ -221,14 +223,12 @@ module CDP2 {
         let days_since_created = if (days_since_created != 0) days_since_created else 1;
 
         let days_since_created_multiplier = Math::div(
-            Math::create_from_u128(days_since_created),
-            Math::create_from_u128(365)
+            num_create(days_since_created * Math::pow_10(18), 18),
+            num_create(365, 0)
         );
 
-        let offered_decimals = Dfinance::decimals<Offered>();
-        let offered_num = Math::create_from_u128_decimal(offered, offered_decimals);
-
-        let interest_rate_num = Math::create_from_decimal(interest_rate, 4);
+        let offered_num = num_create(offered, Dfinance::decimals<Offered>());
+        let interest_rate_num = num_create((interest_rate as u128), INTEREST_RATE_DECIMALS);
 
         let offered_value_to_return = Math::add(
             copy offered_num,
@@ -240,18 +240,19 @@ module CDP2 {
                 days_since_created_multiplier
             )
         );
-        let offered_value_to_return = Math::as_scaled_u128(offered_value_to_return, offered_decimals);
 
-        let offered = Account::withdraw_from_sender<Offered>(account, offered_value_to_return);
+        let (offered_value, _) = num_unpack(offered_value_to_return);
+
+        let offered = Account::withdraw_from_sender<Offered>(account, offered_value);
         Account::deposit<Offered>(account, lender, offered);
 
         Event::emit(
             account,
-            DealClosedEvent<Offered, Collateral> {
+            DealClosedOnMarginCallEvent<Offered, Collateral> {
                 lender,
                 borrower,
                 collateral: collateral_value_stored,
-                collateral_in_offered: collateral_value,
+                collateral_in_offered: offered_for_collateral,
                 closed_at: Time::now(),
                 interest_rate,
                 ltv,
@@ -279,32 +280,28 @@ module CDP2 {
         borrowed
     }
 
-    fun compute_margin_calls(offered_amount: Math::Number, offered_scale: u8): (u128, u128) {
-        let soft_mc_multiplier = Math::create_from_decimal(SOFT_MARGIN_CALL, 2);
-        let soft_mc = Math::mul(copy offered_amount, soft_mc_multiplier);
+    fun compute_margin_calls(offered_amount: Num): (u128, u128) {
+        let soft_mc_multiplier = num_create(SOFT_MARGIN_CALL, 2);
+        let (soft_mc, _) = num_unpack(Math::mul(copy offered_amount, soft_mc_multiplier));
 
-        let hard_mc_multiplier = Math::create_from_decimal(HARD_MARGIN_CALL, 2);
-        let hard_mc = Math::mul(copy offered_amount, hard_mc_multiplier);
+        let hard_mc_multiplier = num_create(HARD_MARGIN_CALL, 2);
+        let (hard_mc, _) = num_unpack(Math::mul(offered_amount, hard_mc_multiplier));
 
-        (Math::as_scaled_u128(soft_mc, offered_scale), Math::as_scaled_u128(hard_mc, offered_scale))
+        (soft_mc, hard_mc)
     }
 
-    fun compute_collateral_value<Offered: copyable, Collateral: copyable>(collateral: u128, ltv: u64): Math::Number {
-        let exchange_rate_u128 = Coins::get_price<Offered, Collateral>();
-        let exchange_rate = Math::create_from_u128_decimal(exchange_rate_u128, 8);
-        let ltv_num = Math::create_from_decimal(ltv, 4);
+    fun compute_offered_value_for_collateral<Offered: copyable, Collateral: copyable>(collateral: u128, ltv: u64): Num {
+        let exchange_rate = num_create(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
+        let ltv_rate = num_create((ltv as u128), LTV_DECIMALS);
+        let collateral = num_create(collateral, Dfinance::decimals<Collateral>());
 
-        let collateral_decimals = Dfinance::decimals<Collateral>();
-        let collateral_value = Math::create_from_u128_decimal(collateral, collateral_decimals);
-
-        let offered_amount = Math::mul(
-            Math::mul(
-                exchange_rate,
-                collateral_value
-            ),
-            ltv_num
+        let offered_unscaled = Math::mul(
+            Math::mul(exchange_rate, collateral),
+            ltv_rate
         );
-        offered_amount
+        let offered_decimals = Dfinance::decimals<Offered>();
+        let offered = Math::scale_to_decimals(offered_unscaled, offered_decimals);
+        num_create(offered, offered_decimals)
     }
 
     struct OfferCreatedEvent<Offered: copyable, Collateral: copyable> {
@@ -337,7 +334,19 @@ module CDP2 {
         hard_mc: u128,
     }
 
-    struct DealClosedEvent<Offered: copyable, Collateral: copyable> {
+    struct DealClosedOnBorrowerEvent<Offered: copyable, Collateral: copyable> {
+        lender: address,
+        borrower: address,
+        collateral: u128,
+        collateral_in_offered: u128,
+        closed_at: u64,
+        interest_rate: u64,
+        ltv: u64,
+        soft_mc: u128,
+        hard_mc: u128,
+    }
+
+    struct DealClosedOnMarginCallEvent<Offered: copyable, Collateral: copyable> {
         lender: address,
         borrower: address,
         collateral: u128,

@@ -1,45 +1,41 @@
 address 0x1 {
 module Math {
-    use 0x1::U256::{Self, U256};
+    use 0x1::U256;
 
     // max signs in u128
     const MAX_DECIMALS: u8 = 18;
-    // 10^18
-    const MAX_SCALING_FACTOR: u128 = 1000000000000000000;
 
-    const MORE_THAN_18_DECIMALS_ERROR: u64 = 401;
+    const ERR_MORE_THAN_18_DECIMALS: u64 = 401;
 
-    struct Number { value: U256 }
+    struct Num { value: u128, dec: u8 }
 
-    public fun create_from_u128(value: u128): Number {
-        Number {
-            value: U256::mul(U256::from_u128(value), U256::from_u128(MAX_SCALING_FACTOR)),
+    public fun num_create(value: u128, dec: u8): Num {
+        Num { value, dec }
+    }
+
+    public fun scale_to_decimals(num: Num, scale_dec: u8): u128 {
+        let (value, dec) = num_unpack(num);
+        if (dec < scale_dec) {
+            return value * pow_10(scale_dec - dec)
+            //            return num_create(value * pow_10(scale_dec - dec), scale_dec)
+
+        } else {
+            return value * pow_10(dec - scale_dec)
+            //            return num_create(value * pow_10(dec - scale_dec), scale_dec)
+
         }
     }
 
-    public fun create_from_decimal(val: u64, decimals: u8): Number {
-        assert(decimals <= MAX_DECIMALS, MORE_THAN_18_DECIMALS_ERROR);
+    public fun add(val1: Num, val2: Num): Num {
+        // if val1 <= u128 and val2 <= u128, combination could overflow
+        let (num1, dec1) = num_unpack(val1);
+        let (num2, dec2) = num_unpack(val2);
+        let max_dec = max(dec1, dec2);
 
-        let scaling_factor = pow_10(MAX_DECIMALS - decimals);
-        // val is u64
-        // scaling factor could be 10^18
-        // multiple = <= u64 * <= u64 = <= u128
-        let scaled = (val as u128) * scaling_factor;
+        let num1_scaled = num1 * pow_10(max_dec - dec1);
+        let num2_scaled = num2 * pow_10(max_dec - dec2);
 
-        Number { value: U256::from_u128(scaled) }
-    }
-
-    public fun create_from_u128_decimal(val: u128, decimals: u8): Number {
-        assert(decimals <= MAX_DECIMALS, MORE_THAN_18_DECIMALS_ERROR);
-
-        let scaling_factor = pow_10(MAX_DECIMALS - decimals);
-        // val is u64
-        // scaling factor could be 10^18
-        // multiple = <= u64 * <= u64 = <= u128
-        // could overflow if val and decimals is too big
-        let scaled = val * scaling_factor;
-
-        Number { value: U256::from_u128(scaled) }
+        num_create(num1_scaled + num2_scaled, max_dec)
     }
 
     public fun pow(base: u64, exp: u8): u128 {
@@ -52,108 +48,72 @@ module Math {
         result_val
     }
 
-    fun pow_10(exp: u8): u128 {
+    public fun pow_10(exp: u8): u128 {
         pow(10, exp)
     }
 
-    public fun add(val1: Number, val2: Number): Number {
-        // if val1 <= u128 and val2 <= u128, combination could be > u128, so storing in U256
-        let inner_val1 = as_u256(val1);
-        let inner_val2 = as_u256(val2);
-        Number {
-            value: U256::add(inner_val1, inner_val2)
-        }
+    public fun num_unpack(num: Num): (u128, u8) {
+        let Num { value, dec } = num;
+        (value, dec)
     }
 
-    public fun sub(val1: Number, val2: Number): Number {
-        // if val1 <= u128 and val2 <= u128, combination could be > u128, so storing in U256
-        let inner_val1 = as_u256(val1);
-        let inner_val2 = as_u256(val2);
-        Number {
-            value: U256::sub(inner_val1, inner_val2)
-        }
+    fun max(a: u8, b: u8): u8 {
+        if (a > b) a else b
     }
 
-    public fun mul(val1: Number, val2: Number): Number {
-        let inner_val1 = as_u256(val1);
-        let inner_val2 = as_u256(val2);
+    public fun sub(val1: Num, val2: Num): Num {
+        let (num1, dec1) = num_unpack(val1);
+        let (num2, dec2) = num_unpack(val2);
+        let max_dec = max(dec1, dec2);
 
-        // 36th dimension
-        let unscaled = U256::mul(inner_val1, inner_val2);
-        let scaling_factor = U256::from_u128(MAX_SCALING_FACTOR);
+        let num1_scaled = num1 * pow_10(max_dec - dec1);
+        let num2_scaled = num2 * pow_10(max_dec - dec2);
 
-        // divide once by scaling factor to get back to 18th dimension
-        let scaled = U256::div(unscaled, scaling_factor);
-
-        Number {
-            value: scaled
-        }
+        num_create(num1_scaled - num2_scaled, max_dec)
     }
 
-    public fun div(val1: Number, val2: Number): Number {
-        let inner_val1 = as_u256(val1);
-        // to account for underlying 18th dimension of val2
-        let inner_val1_scaled = U256::mul(inner_val1, U256::from_u128(MAX_SCALING_FACTOR));
-
-        let inner_val2 = as_u256(val2);
-
-        // 36th dimension
-        let value = U256::div(inner_val1_scaled, inner_val2);
-        Number { value }
+    public fun mul(val1: Num, val2: Num): Num {
+        let (num1, dec1) = num_unpack(val1);
+        assert(
+            dec1 <= MAX_DECIMALS,
+            ERR_MORE_THAN_18_DECIMALS
+        );
+        let (num2, dec2) = num_unpack(val2);
+        assert(
+            dec2 <= MAX_DECIMALS,
+            ERR_MORE_THAN_18_DECIMALS
+        );
+        let scaling_factor = pow_10(dec2);
+        let res = U256::div(
+            U256::mul(
+                U256::from_u128(num1),
+                U256::from_u128(num2)
+            ),
+            U256::from_u128(scaling_factor)
+        );
+        num_create(U256::as_u128(res), dec1)
     }
 
-    public fun as_u256(num: Number): U256 {
-        let Number { value } = num;
-        value
+    public fun div(val1: Num, val2: Num): Num {
+        let (num1, dec1) = num_unpack(val1);
+        assert(
+            dec1 <= MAX_DECIMALS,
+            ERR_MORE_THAN_18_DECIMALS
+        );
+        let (num2, dec2) = num_unpack(val2);
+        assert(
+            dec2 <= MAX_DECIMALS,
+            ERR_MORE_THAN_18_DECIMALS
+        );
+        let scaling_factor = pow_10(dec2);
+        let res = U256::div(
+            U256::mul(
+                U256::from_u128(num1),
+                U256::from_u128(scaling_factor)
+            ),
+            U256::from_u128(num2)
+        );
+        num_create(U256::as_u128(res), dec1)
     }
-
-    public fun as_u128(num: Number): u128 {
-        // should fail with arithmetic error, if internal > u128
-        let internal = as_u256(num);
-        let scaled = U256::div(internal, U256::from_u128(MAX_SCALING_FACTOR));
-        U256::as_u128(scaled)
-    }
-//
-//    public fun as_borrowed_u128(num: T): u128 {
-//        // should fail with arithmetic error, if internal > u128
-//        let internal = as_u256(num);
-//        let scaled = U256::div(internal, U256::from_u128(MAX_SCALING_FACTOR));
-//        U256::as_u128(scaled)
-//    }
-
-    public fun as_scaled_u128(num: Number, decimals: u8): u128 {
-        assert(decimals <= MAX_DECIMALS, MORE_THAN_18_DECIMALS_ERROR);
-
-        let internal = as_u256(num);
-        let scaling_factor = pow_10(MAX_DECIMALS - decimals);
-        let scaled = U256::div(internal, U256::from_u128(scaling_factor));
-
-        // if passed decimals is too small, and internal value > u128 => could be u128 overflow
-        U256::as_u128(scaled)
-    }
-
-    public fun equals(a: &Number, b: &Number): bool {
-        &a.value == &b.value
-    }
-
-    public fun lt(a: Number, b: Number): bool {
-        let Number { value: value_a } = a;
-        let Number { value: value_b } = b;
-        let value_a_u128 = U256::as_u128(value_a);
-        let value_b_u128 = U256::as_u128(value_b);
-        value_a_u128 < value_b_u128
-    }
-
-//    public fun lte(a: &T, b: &T): bool {
-//        &a.value <= &b.value
-//    }
-//
-//    public fun gt(a: &T, b: &T): bool {
-//        &a.value > &b.value
-//    }
-//
-//    public fun gte(a: &T, b: &T): bool {
-//        &a.value >= &b.value
-//    }
 }
 }
