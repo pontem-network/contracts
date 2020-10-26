@@ -17,11 +17,9 @@ module Math {
         let (value, dec) = num_unpack(num);
         if (dec < scale_dec) {
             return value * pow_10(scale_dec - dec)
-            //            return num_create(value * pow_10(scale_dec - dec), scale_dec)
 
         } else {
             return value * pow_10(dec - scale_dec)
-            //            return num_create(value * pow_10(dec - scale_dec), scale_dec)
 
         }
     }
