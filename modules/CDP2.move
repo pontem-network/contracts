@@ -14,6 +14,7 @@ module CDP2 {
     const SECONDS_IN_DAY: u128 = 86400;
     const EXCHANGE_RATE_DECIMALS: u8 = 8;
     const LTV_DECIMALS: u8 = 4;
+    const LTV_100_PERCENT: u64 = 10000;
     const INTEREST_RATE_DECIMALS: u8 = 4;
 
     const ERR_INCORRECT_LTV: u64 = 1;
@@ -21,23 +22,26 @@ module CDP2 {
     const ERR_HARD_MC_HAS_OCCURRED: u64 = 3;
     const ERR_HARD_MC_HAS_NOT_OCCURRED: u64 = 31;
 
-    resource struct Offer<Offered: copyable, Collateral: copyable> {
-        available_amount: Dfinance::T<Offered>,
+    struct DealParams {
         // < 6700, 2 signs after comma
         ltv: u64,
         // 2 signs after comma
         interest_rate: u64,
     }
 
+    resource struct Offer<Offered: copyable, Collateral: copyable> {
+        available_amount: Dfinance::T<Offered>,
+        params: DealParams,
+    }
+
     resource struct Deal<Offered, Collateral> {
         offered: u128,
         collateral: Dfinance::T<Collateral>,
         created_at: u64,
-        interest_rate: u64,
         lender: address,
-        ltv: u64,
         soft_mc: u128,
         hard_mc: u128,
+        params: DealParams,
     }
 
     public fun has_deal<Offered: copyable, Collateral: copyable>(borrower: address): bool {
@@ -58,15 +62,15 @@ module CDP2 {
         assert(Coins::has_price<Offered, Collateral>(), ERR_NO_ORACLE_PRICE);
 
         let amount_num = Dfinance::value(&available_amount);
-        let offer = Offer<Offered, Collateral> { available_amount, ltv, interest_rate };
+        let params = DealParams { ltv, interest_rate };
+        let offer = Offer<Offered, Collateral> { available_amount, params: copy params };
         move_to(account, offer);
 
         Event::emit(
             account,
             OfferCreatedEvent<Offered, Collateral> {
                 available_amount: amount_num,
-                ltv,
-                interest_rate,
+                params,
                 lender: Signer::address_of(account),
             }
         );
@@ -98,8 +102,8 @@ module CDP2 {
     ): Dfinance::T<Offered> acquires Offer {
         let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
 
-        let offer_ltv = offer.ltv;
-        let offer_interest_rate = offer.interest_rate;
+        let offer_ltv = offer.params.ltv;
+        let offer_interest_rate = offer.params.interest_rate;
 
         assert(ltv <= offer_ltv, ERR_INCORRECT_LTV);
 
@@ -118,15 +122,15 @@ module CDP2 {
         let offered_value = Dfinance::value(&offered);
         let created_at = Time::now();
         let borrower = Signer::address_of(account);
+        let deal_params = DealParams { interest_rate: offer_interest_rate, ltv };
         move_to(
             account,
             Deal<Offered, Collateral> {
                 offered: offered_value,
                 collateral,
                 created_at,
-                interest_rate: offer_interest_rate,
+                params: copy deal_params,
                 lender,
-                ltv,
                 soft_mc,
                 hard_mc
             });
@@ -137,9 +141,8 @@ module CDP2 {
                 borrower,
                 offered: offered_value,
                 collateral: collateral_value_u128,
-                interest_rate: offer_interest_rate,
+                params: deal_params,
                 created_at,
-                ltv,
                 soft_mc,
                 hard_mc,
             });
@@ -154,9 +157,8 @@ module CDP2 {
             offered: _,
             collateral,
             created_at: _,
-            interest_rate,
+            params,
             lender,
-            ltv,
             soft_mc,
             hard_mc
         } = move_from<Deal<Offered, Collateral>>(borrower);
@@ -164,7 +166,7 @@ module CDP2 {
         let collateral_value_stored = Dfinance::value(&collateral);
         let offered_num = compute_offered_value_for_collateral<Offered, Collateral>(
             collateral_value_stored,
-            10000
+            LTV_100_PERCENT
         );
         // same dimension as margin calls
         let (offered_for_collateral, _) = num_unpack(offered_num);
@@ -184,8 +186,7 @@ module CDP2 {
                 collateral: collateral_value_stored,
                 collateral_in_offered: offered_for_collateral,
                 closed_at: Time::now(),
-                interest_rate,
-                ltv,
+                params,
                 soft_mc,
                 hard_mc,
             });
@@ -199,12 +200,12 @@ module CDP2 {
             offered,
             collateral,
             created_at,
-            interest_rate,
+            params,
             lender,
-            ltv,
             soft_mc,
             hard_mc
         } = move_from<Deal<Offered, Collateral>>(borrower);
+        let interest_rate = params.interest_rate;
 
         let collateral_value_stored = Dfinance::value(&collateral);
         let offered_num_for_collateral = compute_offered_value_for_collateral<Offered, Collateral>(
@@ -248,14 +249,13 @@ module CDP2 {
 
         Event::emit(
             account,
-            DealClosedOnMarginCallEvent<Offered, Collateral> {
+            DealClosedOnBorrowerEvent<Offered, Collateral> {
                 lender,
                 borrower,
                 collateral: collateral_value_stored,
                 collateral_in_offered: offered_for_collateral,
                 closed_at: Time::now(),
-                interest_rate,
-                ltv,
+                params,
                 soft_mc,
                 hard_mc,
             });
@@ -306,10 +306,8 @@ module CDP2 {
 
     struct OfferCreatedEvent<Offered: copyable, Collateral: copyable> {
         available_amount: u128,
-        // < 6700
-        ltv: u64,
-        interest_rate: u64,
         lender: address,
+        params: DealParams,
     }
 
     struct OfferDepositedEvent<Offered: copyable, Collateral: copyable> {
@@ -328,10 +326,9 @@ module CDP2 {
         offered: u128,
         collateral: u128,
         created_at: u64,
-        interest_rate: u64,
-        ltv: u64,
         soft_mc: u128,
         hard_mc: u128,
+        params: DealParams,
     }
 
     struct DealClosedOnBorrowerEvent<Offered: copyable, Collateral: copyable> {
@@ -340,10 +337,9 @@ module CDP2 {
         collateral: u128,
         collateral_in_offered: u128,
         closed_at: u64,
-        interest_rate: u64,
-        ltv: u64,
         soft_mc: u128,
         hard_mc: u128,
+        params: DealParams,
     }
 
     struct DealClosedOnMarginCallEvent<Offered: copyable, Collateral: copyable> {
@@ -352,10 +348,9 @@ module CDP2 {
         collateral: u128,
         collateral_in_offered: u128,
         closed_at: u64,
-        interest_rate: u64,
-        ltv: u64,
         soft_mc: u128,
         hard_mc: u128,
+        params: DealParams,
     }
 }
 }
