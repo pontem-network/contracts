@@ -19,7 +19,7 @@ module Math {
             return value * pow_10(scale_dec - dec)
 
         } else {
-            return value * pow_10(dec - scale_dec)
+            return value / pow_10(dec - scale_dec)
 
         }
     }

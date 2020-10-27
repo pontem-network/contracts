@@ -51,13 +51,11 @@ script {
         let offer_address = 0x101;
         // 1 ETH = 1 * 10^18 gwei
         let eth_collateral = Dfinance::mint<ETH>(1000000000000000000);
-        let ltv = 6200;  // 62%
-
         assert(
             !CDP2::has_deal<XFI, ETH>(Signer::address_of(borrower_account)),
             109
         );
-        let xfi_offered = CDP2::make_deal<XFI, ETH>(borrower_account, offer_address, eth_collateral, ltv);
+        let xfi_offered = CDP2::make_deal<XFI, ETH>(borrower_account, offer_address, eth_collateral, 620000000000);
         assert(Dfinance::value(&xfi_offered) == 620000000000, 501);
 
         Account::deposit_to_sender(

@@ -100,21 +100,29 @@ module CDP2 {
         account: &signer,
         lender: address,
         collateral: Dfinance::T<Collateral>,
-        ltv: u64
+        offered_amount: u128
     ): Dfinance::T<Offered> acquires Offer {
-        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
+        let collateral_value = Dfinance::value<Collateral>(&collateral);
 
+        let exchange_rate = num_create(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
+        let offered_decimals = Dfinance::decimals<Offered>();
+        let offered_num = num_create(offered_amount, offered_decimals);
+        let collateral_num = num_create(collateral_value, Dfinance::decimals<Collateral>());
+
+        // ALL_OFFERED_COINS_FOR_COLLATERAL = COLLATERAL * EXCHANGE_RATE
+        // LTV = DESIRED_OFFERED_COINS / COLLATERAL * EXCHANGE_RATE
+        let all_offered_for_collateral = Math::mul(collateral_num, exchange_rate);
+        let ltv_unscaled = Math::div(offered_num, all_offered_for_collateral);
+
+        let ltv = (Math::scale_to_decimals(ltv_unscaled, LTV_DECIMALS) as u64);
+
+        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
         let offer_ltv = offer.params.ltv;
         let offer_interest_rate = offer.params.interest_rate;
-
         assert(ltv <= offer_ltv, ERR_INCORRECT_LTV);
 
-        let collateral_value_u128 = Dfinance::value<Collateral>(&collateral);
-        let offered_num = compute_offered_value_for_collateral<Offered, Collateral>(collateral_value_u128, ltv);
-        let (offered_value, _) = num_unpack(copy offered_num);
-
-        let offered = Dfinance::withdraw<Offered>(&mut offer.available_deposit, offered_value);
-        let (soft_mc, hard_mc) = compute_margin_calls(offered_num);
+        let offered = Dfinance::withdraw<Offered>(&mut offer.available_deposit, offered_amount);
+        let (soft_mc, hard_mc) = compute_margin_calls(num_create(offered_amount, offered_decimals));
 
         let offered_value = Dfinance::value(&offered);
         let created_at = Time::now();
@@ -123,7 +131,7 @@ module CDP2 {
         move_to(
             account,
             Deal<Offered, Collateral> {
-                offered: offered_value,
+                offered: offered_amount,
                 collateral,
                 created_at,
                 params: copy deal_params,
@@ -137,7 +145,7 @@ module CDP2 {
                 lender,
                 borrower,
                 offered: offered_value,
-                collateral: collateral_value_u128,
+                collateral: collateral_value,
                 params: deal_params,
                 created_at,
                 soft_mc,
