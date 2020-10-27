@@ -16,6 +16,8 @@ module CDP2 {
     const LTV_DECIMALS: u8 = 4;
     const LTV_100_PERCENT: u64 = 10000;
     const INTEREST_RATE_DECIMALS: u8 = 4;
+    // 10^18
+    const MAX_ACCURACY_DIVISION_MULTIPLIER: u128 = 1000000000000000000;
 
     const ERR_INCORRECT_LTV: u64 = 1;
     const ERR_NO_ORACLE_PRICE: u64 = 2;
@@ -30,7 +32,7 @@ module CDP2 {
     }
 
     resource struct Offer<Offered: copyable, Collateral: copyable> {
-        available_amount: Dfinance::T<Offered>,
+        available_deposit: Dfinance::T<Offered>,
         params: DealParams,
     }
 
@@ -54,16 +56,16 @@ module CDP2 {
 
     public fun create_offer<Offered: copyable, Collateral: copyable>(
         account: &signer,
-        available_amount: Dfinance::T<Offered>,
+        available_deposit: Dfinance::T<Offered>,
         ltv: u64,
         interest_rate: u64
     ) {
         assert(ltv <= MAX_LTV, ERR_INCORRECT_LTV);
         assert(Coins::has_price<Offered, Collateral>(), ERR_NO_ORACLE_PRICE);
 
-        let amount_num = Dfinance::value(&available_amount);
+        let amount_num = Dfinance::value(&available_deposit);
         let params = DealParams { ltv, interest_rate };
-        let offer = Offer<Offered, Collateral> { available_amount, params: copy params };
+        let offer = Offer<Offered, Collateral> { available_deposit, params: copy params };
         move_to(account, offer);
 
         Event::emit(
@@ -79,11 +81,11 @@ module CDP2 {
     public fun deposit_amount_to_offer<Offered: copyable, Collateral: copyable>(
         account: &signer,
         lender: address,
-        amount: Dfinance::T<Offered>
+        to_deposit: Dfinance::T<Offered>
     ) acquires Offer {
         let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let amount_deposited_num = Dfinance::value(&amount);
-        Dfinance::deposit<Offered>(&mut offer.available_amount, amount);
+        let amount_deposited_num = Dfinance::value(&to_deposit);
+        Dfinance::deposit<Offered>(&mut offer.available_deposit, to_deposit);
 
         Event::emit(
             account,
@@ -111,12 +113,7 @@ module CDP2 {
         let offered_num = compute_offered_value_for_collateral<Offered, Collateral>(collateral_value_u128, ltv);
         let (offered_value, _) = num_unpack(copy offered_num);
 
-        let offered = withdraw_amount_from_offer<Offered, Collateral>(
-            account,
-            offer,
-            lender,
-            offered_value
-        );
+        let offered = Dfinance::withdraw<Offered>(&mut offer.available_deposit, offered_value);
         let (soft_mc, hard_mc) = compute_margin_calls(offered_num);
 
         let offered_value = Dfinance::value(&offered);
@@ -221,23 +218,25 @@ module CDP2 {
 
         let now = Time::now();
         let days_since_created = ((now - created_at) as u128) / SECONDS_IN_DAY;
+        // min days since CDP created is 1
         let days_since_created = if (days_since_created != 0) days_since_created else 1;
 
+        // DAYS_HELD_MULTIPLIER = NUM_DAYS_CDP_HELD / 365
         let days_since_created_multiplier = Math::div(
-            num_create(days_since_created * Math::pow_10(18), 18),
+            // max accuracy is 18 decimals
+            num_create(days_since_created * MAX_ACCURACY_DIVISION_MULTIPLIER, 18),
             num_create(365, 0)
         );
-
         let offered_num = num_create(offered, Dfinance::decimals<Offered>());
         let interest_rate_num = num_create((interest_rate as u128), INTEREST_RATE_DECIMALS);
 
+        // OFFERED_COINS_OWNED =
+        //      OFFERED_COINS_INITIALLY_RECEIVED
+        //      + ( OFFERED_COINS_INITIALLY_RECEIVED * INTEREST_RATE_IN_YEAR * DAYS_HELD_MULTIPLIER )
         let offered_value_to_return = Math::add(
             copy offered_num,
             Math::mul(
-                Math::mul(
-                    offered_num,
-                    interest_rate_num
-                ),
+                Math::mul(offered_num, interest_rate_num),
                 days_since_created_multiplier
             )
         );
@@ -262,29 +261,13 @@ module CDP2 {
         collateral
     }
 
-    fun withdraw_amount_from_offer<Offered: copyable, Collateral: copyable>(
-        account: &signer,
-        offer: &mut Offer<Offered, Collateral>,
-        lender: address,
-        amount: u128
-    ): Dfinance::T<Offered> {
-        let borrowed = Dfinance::withdraw<Offered>(&mut offer.available_amount, amount);
-
-        Event::emit(
-            account,
-            OfferDepositBorrowedEvent<Offered, Collateral> {
-                amount,
-                lender
-            }
-        );
-        borrowed
-    }
-
     fun compute_margin_calls(offered_amount: Num): (u128, u128) {
         let soft_mc_multiplier = num_create(SOFT_MARGIN_CALL, 2);
+        // SMC = OFFERED_COINS * 1.3
         let (soft_mc, _) = num_unpack(Math::mul(copy offered_amount, soft_mc_multiplier));
 
         let hard_mc_multiplier = num_create(HARD_MARGIN_CALL, 2);
+        // HMC = OFFERED_COINS * 1.5
         let (hard_mc, _) = num_unpack(Math::mul(offered_amount, hard_mc_multiplier));
 
         (soft_mc, hard_mc)
@@ -295,6 +278,8 @@ module CDP2 {
         let ltv_rate = num_create((ltv as u128), LTV_DECIMALS);
         let collateral = num_create(collateral, Dfinance::decimals<Collateral>());
 
+        // OFFERED_COINS_AVAILABLE_IN_EXCHANGE_FOR_COLLATERAL =
+        //     OFFERED_TO_COLLATERAL_EXCHANGE_RATE * COLLATERAL * LOAN_TO_VALUE_RATE
         let offered_unscaled = Math::mul(
             Math::mul(exchange_rate, collateral),
             ltv_rate
