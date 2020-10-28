@@ -97,7 +97,7 @@ module Security {
     public fun take<For>(account: &signer): Security<For> acquires Security {
         move_from<Security<For>>(Signer::address_of(account))
     }
-    
+
     public fun can_prove<For>(security: &Security<For>, proof: &Proof): bool {
         (security.id == proof.id && security.by == proof.by)
     }

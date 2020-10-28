@@ -48,7 +48,7 @@ module CDP2 {
         collateral: Dfinance::T<Collateral>,
         proofs: vector<Security::Proof>,
         deals_made: u64, // ID COUNTER
-        deals: vector<Deal>,
+        deals: vector<Deal<Offered, Collateral>>,
 
         is_active: bool  // whether Offer is available for deals
     }
@@ -60,7 +60,8 @@ module CDP2 {
         hard_mc: u128,
         created_at: u64,
         offered_amt: u128,
-        collateral_amt: u128
+        interest_rate: u64,
+        collateral_amt: u128,
     }
 
     public fun has_offer<Offered: copyable, Collateral: copyable>(lender: address): bool {
@@ -88,6 +89,7 @@ module CDP2 {
             is_active: true,
             collateral: Dfinance::zero<Collateral>(),
             proofs: Vector::empty<Security::Proof>(),
+            deals: Vector::empty<Deal<Offered, Collateral>>(),
             deals_made: 0
         });
 
@@ -137,7 +139,7 @@ module CDP2 {
         let offered_decimals = Dfinance::decimals<Offered>();
         let collateral_amt   = Dfinance::value<Collateral>(&collateral);
         let exchange_rate    = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
-        let collateral_num   = num(collateral_value, Dfinance::decimals<Collateral>());
+        let collateral_num   = num(collateral_amt, Dfinance::decimals<Collateral>());
         let offered_num      = num(amount_wanted, offered_decimals);
 
         // MAX_OFFER_AMOUNT = COLLATERAL * EXCHANGE_RATE
@@ -163,16 +165,17 @@ module CDP2 {
 
         let created_at  = Time::now();
         let offered_amt = Dfinance::value(&offered);
-        let borrower    = Signer::address_of(account);
         let deal_params = DealParams { interest_rate, ltv };
+
+        let deal_id = offer.deals_made;
 
         // Issue Security for this deal which will hold the deal params in it
         let (security, proof) = Security::issue<CDP<Offered, Collateral>>(account, CDP {
             lender,
-            deal_id: offer.deals_made,
+            deal_id,
         });
 
-        let deal = Deal {
+        let deal = Deal<Offered, Collateral> {
             ltv,
             soft_mc,
             hard_mc,
@@ -180,23 +183,25 @@ module CDP2 {
             offered_amt,
             collateral_amt,
             id: deal_id,
+            interest_rate: offer.params.interest_rate
         };
 
         // Update the bank with proof and collateral
         Vector::push_back(&mut offer.deals, deal);
         Vector::push_back(&mut offer.proofs, proof);
         Dfinance::deposit(&mut offer.collateral, collateral);
-        offer.deals_made = offer.deals_made + 1;
+        offer.deals_made = deal_id + 1;
 
         Event::emit(account, DealCreatedEvent<Offered, Collateral> {
             lender,
-            borrower,
+            deal_id,
             soft_mc,
             hard_mc,
             created_at,
+            collateral_amt,
             params: deal_params,
-            offered: offered_value,
-            collateral: collateral_value,
+            offered_amt: amount_wanted,
+            borrower: Signer::address_of(account),
         });
 
         (offered, security)
@@ -226,13 +231,13 @@ module CDP2 {
 
         Event::emit(account, DealClosedOnMarginCallEvent<Offered, Collateral> {
             lender,
-            borrower,
-            collateral: collateral_value_stored,
-            collateral_in_offered: offered_for_collateral,
+            deal_id,
+            collateral_amt: deal.collateral_amt,
+            offered_amt: deal.offered_amt,
             closed_at: Time::now(),
-            params,
-            soft_mc,
-            hard_mc,
+            // params: ,
+            soft_mc: deal.soft_mc,
+            hard_mc: deal.hard_mc,
         });
     }
 
@@ -242,10 +247,10 @@ module CDP2 {
     public fun pay_back<Offered: copyable, Collateral: copyable>(
         account: &signer,
         security: Security<CDP<Offered, Collateral>>,
-    ): Dfinance::T<Collateral> acquires Deal {
+    ): Dfinance::T<Collateral> acquires Offer {
 
         let lender = Security::borrow(&security).lender;
-        let offer  = borrow_global_mut<Offer<Offered, Collateral>>(params.lender);
+        let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
         let params = destroy_security(&mut offer.proofs, security);
         let deal   = take_deal(&mut offer.deals, params.deal_id);
         let price  = Coins::get_price<Offered, Collateral>();
@@ -262,7 +267,7 @@ module CDP2 {
         // DAYS_HELD_MULTIPLIER = NUM_DAYS_CDP_HELD / 365
         let ir_multiplier = Math::div(
             // max accuracy is 18 decimals
-            num(days_past * MAX_ACCURACY_DIVISION_MULTIPLIER, 18),
+            num((days_past as u128) * MAX_ACCURACY_DIVISION_MULTIPLIER, 18),
             num(365, 0)
         );
 
@@ -289,51 +294,51 @@ module CDP2 {
 
         Event::emit(account, DealClosedOnBorrowerEvent<Offered, Collateral> {
             lender,
-            borrower,
-            collateral: collateral_value_stored,
-            collateral_in_offered: offered_for_collateral,
-            params,
-            soft_mc,
-            hard_mc,
+            pay_back_amt,
+            collateral_amt: deal.collateral_amt,
+            borrower: Signer::address_of(account),
         });
 
         (collateral)
     }
 
     /// Take deal from list or fail if didn't find the seached asset
-    fun take_deal<Off, Coll>(deals: &mut vector<Deal<Off, Coll>>, deal_id: u64): Deal {
+    fun take_deal<Off: copyable, Coll: copyable>(
+        deals: &mut vector<Deal<Off, Coll>>,
+        deal_id: u64
+    ): Deal<Off, Coll> {
         let i = 0;
         let l = Vector::length(deals);
         while (i < l) {
-            let deal = Vector::borrow(deals, i);
+            let deal = Vector::borrow<Deal<Off, Coll>>(deals, i);
             if (deal.id == deal_id) {
-                return Vector::remove(deals, i);
+                return Vector::remove<Deal<Off, Coll>>(deals, i)
             };
             i = i + 1;
         };
 
         // No deal at all!
-        abort 10;
+        abort 10
     }
 
     /// Walk through vector of Proofs to find match
-    fun destroy_security<Off, Coll>(
-        proofs: &mut vector<Proof>,
-        sec: Security<CDPDeal<Off, Coll>>
-    ): CDPDeal<Off, Coll> {
+    fun destroy_security<Off: copyable, Coll: copyable>(
+        proofs: &mut vector<Security::Proof>,
+        sec: Security<CDP<Off, Coll>>
+    ): CDP<Off, Coll> {
         let i = 0;
         let l = Vector::length(proofs);
         while (i < l) {
-            let proof = Vector::borrow(proofs, i);
+            let proof = Vector::borrow<Security::Proof>(proofs, i);
 
-            if (Security::can_prove(&sec, &proof)) {
-                return Security::prove(sec, Vector::remove(proofs, i));
+            if (Security::can_prove(&sec, proof)) {
+                return Security::prove(sec, Vector::remove<Security::Proof>(proofs, i))
             };
 
             i = i + 1;
         };
 
-        abort 10;
+        abort 10
     }
 
     fun compute_margin_calls(amount_wanted: Num): (u128, u128) {
@@ -385,8 +390,8 @@ module CDP2 {
         lender: address,
         deal_id: u64,
         borrower: address,
-        offered: u128,
-        collateral: u128,
+        offered_amt: u128,
+        collateral_amt: u128,
         created_at: u64,
         soft_mc: u128,
         hard_mc: u128,
@@ -396,23 +401,19 @@ module CDP2 {
     struct DealClosedOnBorrowerEvent<Offered: copyable, Collateral: copyable> {
         lender: address,
         borrower: address,
-        collateral: u128,
-        collateral_in_offered: u128,
-        closed_at: u64,
-        soft_mc: u128,
-        hard_mc: u128,
-        params: DealParams,
+        pay_back_amt: u128,
+        collateral_amt: u128,
     }
 
     struct DealClosedOnMarginCallEvent<Offered: copyable, Collateral: copyable> {
         lender: address,
-        borrower: address,
-        collateral: u128,
-        collateral_in_offered: u128,
+        deal_id: u64,
+        collateral_amt: u128,
+        offered_amt: u128,
         closed_at: u64,
         soft_mc: u128,
         hard_mc: u128,
-        params: DealParams,
+        // params: DealParams,
     }
 }
 }
