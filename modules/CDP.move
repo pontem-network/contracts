@@ -6,7 +6,7 @@ address 0x1 {
 ///
 /// - Collateral - currency to put into deal which will not be
 /// accessible until Offered is returned
-module CDP2 {
+module CDP {
     use 0x1::Coins;
     use 0x1::Dfinance;
     use 0x1::Security::{Self, Security};
@@ -63,7 +63,7 @@ module CDP2 {
     }
 
     /// Marker for Security to use in `For` generic
-    struct CDP<Offered: copyable, Collateral: copyable> {
+    struct CDPSecurity<Offered: copyable, Collateral: copyable> {
         lender: address,
         deal_id: u64
     }
@@ -134,7 +134,7 @@ module CDP2 {
         lender: address,
         collateral: Dfinance::T<Collateral>,
         amount_wanted: u128,
-    ): (Dfinance::T<Offered>, Security<CDP<Offered, Collateral>>) acquires Offer {
+    ): (Dfinance::T<Offered>, Security<CDPSecurity<Offered, Collateral>>) acquires Offer {
         let exchange_rate = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
 
         let offered_decimals = Dfinance::decimals<Offered>();
@@ -162,9 +162,9 @@ module CDP2 {
 
         let deal_id = offer.deals_made;
         // Issue Security for this deal which will hold the deal params in it
-        let (security, proof) = Security::issue<CDP<Offered, Collateral>>(
+        let (security, proof) = Security::issue<CDPSecurity<Offered, Collateral>>(
             account,
-            CDP {
+            CDPSecurity {
                 lender,
                 deal_id,
             });
@@ -250,12 +250,12 @@ module CDP2 {
     /// Collateral is returned on success.
     public fun pay_back<Offered: copyable, Collateral: copyable>(
         account: &signer,
-        security: Security<CDP<Offered, Collateral>>,
+        security: Security<CDPSecurity<Offered, Collateral>>,
     ): Dfinance::T<Collateral> acquires Offer {
         let lender = Security::borrow(&security).lender;
 
         let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let CDP { lender: _, deal_id } = resolve_security(&mut offer.proofs, security);
+        let CDPSecurity { lender: _, deal_id } = resolve_security(&mut offer.proofs, security);
 
         let Deal {
             id: _,
@@ -336,8 +336,8 @@ module CDP2 {
     /// Walk through vector of Proofs to find match
     fun resolve_security<Offered: copyable, Collateral: copyable>(
         proofs: &mut vector<Security::Proof>,
-        security: Security<CDP<Offered, Collateral>>
-    ): CDP<Offered, Collateral> {
+        security: Security<CDPSecurity<Offered, Collateral>>
+    ): CDPSecurity<Offered, Collateral> {
         let i = 0;
         let l = Vector::length(proofs);
         while (i < l) {

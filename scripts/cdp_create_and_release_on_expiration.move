@@ -13,7 +13,7 @@ script {
 /// signer: 0x101
 /// price: xfi_eth 100
 script {
-    use 0x1::CDP2;
+    use 0x1::CDP;
     use 0x1::Dfinance;
     use 0x1::Signer;
 
@@ -27,10 +27,10 @@ script {
         let interest_rate = 1000;  // 10%
 
         assert(
-            !CDP2::has_offer<XFI, ETH>(Signer::address_of(lender_account)),
+            !CDP::has_offer<XFI, ETH>(Signer::address_of(lender_account)),
             108
         );
-        CDP2::create_offer<XFI, ETH>(lender_account, num_of_xfi_available, ltv, interest_rate);
+        CDP::create_offer<XFI, ETH>(lender_account, num_of_xfi_available, ltv, interest_rate);
     }
 }
 
@@ -39,7 +39,7 @@ script {
 /// signer: 0x103
 /// current_time: 100
 script {
-    use 0x1::CDP2;
+    use 0x1::CDP;
     use 0x1::Dfinance;
     use 0x1::Account;
     use 0x1::Signer;
@@ -54,7 +54,7 @@ script {
         // 1 ETH = 1 * 10^18 gwei
         let eth_collateral = Dfinance::mint<ETH>(1000000000000000000);
         let xfi_62 = 620000000000;
-        let (xfi_offered, cdp_security) = CDP2::make_cdp_deal<XFI, ETH>(borrower_account, offer_address, eth_collateral, xfi_62);
+        let (xfi_offered, cdp_security) = CDP::make_cdp_deal<XFI, ETH>(borrower_account, offer_address, eth_collateral, xfi_62);
         assert(Dfinance::value(&xfi_offered) == xfi_62, 110);
 
         Account::deposit(
@@ -71,7 +71,7 @@ script {
 /// current_time: 200
 /// aborts_with: 10
 script {
-    use 0x1::CDP2;
+    use 0x1::CDP;
     use 0x1::Account;
     use 0x1::Security;
 
@@ -79,9 +79,9 @@ script {
     use 0x1::XFI::T as XFI;
 
     fun do_not_release_money_if_not_enough_xfi_to_pay_interest_rate(borrower_account: &signer) {
-        let cdp_security = Security::take<CDP2::CDP<XFI, ETH>>(borrower_account);
+        let cdp_security = Security::take<CDP::CDPSecurity<XFI, ETH>>(borrower_account);
 
-        let collateral = CDP2::pay_back<XFI, ETH>(borrower_account, cdp_security);
+        let collateral = CDP::pay_back<XFI, ETH>(borrower_account, cdp_security);
         Account::deposit_to_sender(borrower_account, collateral)
     }
 }
@@ -90,7 +90,7 @@ script {
 /// signer: 0x103
 /// current_time: 200
 script {
-    use 0x1::CDP2;
+    use 0x1::CDP;
     use 0x1::Account;
     use 0x1::Dfinance;
     use 0x1::Security;
@@ -103,9 +103,9 @@ script {
         let xfi_2 = 20000000000;
         Account::deposit_to_sender<XFI>(borrower_account, Dfinance::mint<XFI>(xfi_2));
 
-        let cdp_security = Security::take<CDP2::CDP<XFI, ETH>>(borrower_account);
+        let cdp_security = Security::take<CDP::CDPSecurity<XFI, ETH>>(borrower_account);
 
-        let collateral = CDP2::pay_back<XFI, ETH>(borrower_account, cdp_security);
+        let collateral = CDP::pay_back<XFI, ETH>(borrower_account, cdp_security);
         let eth_1 = 1000000000000000000;
         assert(Dfinance::value(&collateral) == eth_1, 101);
 

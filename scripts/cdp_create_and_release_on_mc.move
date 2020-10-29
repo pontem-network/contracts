@@ -13,7 +13,7 @@ script {
 /// signer: 0x101
 /// price: xfi_eth 100
 script {
-    use 0x1::CDP2;
+    use 0x1::CDP;
     use 0x1::Dfinance;
     use 0x1::Signer;
 
@@ -27,16 +27,16 @@ script {
         let interest_rate = 1000;  // 10%
 
         assert(
-            !CDP2::has_offer<XFI, ETH>(Signer::address_of(lender_account)),
+            !CDP::has_offer<XFI, ETH>(Signer::address_of(lender_account)),
             108
         );
-        CDP2::create_offer<XFI, ETH>(lender_account, num_of_xfi_available, ltv, interest_rate);
+        CDP::create_offer<XFI, ETH>(lender_account, num_of_xfi_available, ltv, interest_rate);
     }
 }
 
 /// signer: 0x102
 script {
-    use 0x1::CDP2;
+    use 0x1::CDP;
     use 0x1::Dfinance;
 
     use 0x1::Coins::ETH;
@@ -46,7 +46,7 @@ script {
         // 100 XFI
         let num_of_xfi_added = Dfinance::mint<XFI>(1000000000000);
         let offer_address = 0x101;
-        CDP2::deposit_amount_to_offer<XFI, ETH>(signer1, offer_address, num_of_xfi_added);
+        CDP::deposit_amount_to_offer<XFI, ETH>(signer1, offer_address, num_of_xfi_added);
     }
 }
 
@@ -56,7 +56,7 @@ script {
 /// current_time: 100
 /// aborts_with: 1
 script {
-    use 0x1::CDP2;
+    use 0x1::CDP;
     use 0x1::Dfinance;
     use 0x1::Account;
     use 0x1::Signer;
@@ -73,7 +73,7 @@ script {
 
         // 70 XFI, LTV will be 70 and it's more than 62 offer ltv
         let amount_wanted = 700000000000;
-        let (xfi_offered, cdp_security) = CDP2::make_cdp_deal<XFI, ETH>(borrower_account, offer_address, eth_collateral, amount_wanted);
+        let (xfi_offered, cdp_security) = CDP::make_cdp_deal<XFI, ETH>(borrower_account, offer_address, eth_collateral, amount_wanted);
         Account::deposit(
             borrower_account,
             Signer::address_of(borrower_account),
@@ -88,7 +88,7 @@ script {
 /// signer: 0x103
 /// current_time: 100
 script {
-    use 0x1::CDP2;
+    use 0x1::CDP;
     use 0x1::Dfinance;
     use 0x1::Account;
     use 0x1::Signer;
@@ -103,7 +103,7 @@ script {
         // 1 ETH = 1 * 10^18 gwei
         let eth_collateral = Dfinance::mint<ETH>(1000000000000000000);
         let xfi_62 = 620000000000;
-        let (xfi_offered, cdp_security) = CDP2::make_cdp_deal<XFI, ETH>(borrower_account, offer_address, eth_collateral, xfi_62);
+        let (xfi_offered, cdp_security) = CDP::make_cdp_deal<XFI, ETH>(borrower_account, offer_address, eth_collateral, xfi_62);
         assert(Dfinance::value(&xfi_offered) == xfi_62, 110);
 
         Account::deposit(
@@ -122,7 +122,7 @@ script {
 /// current_time: 200
 /// aborts_with: 31
 script {
-    use 0x1::CDP2;
+    use 0x1::CDP;
     use 0x1::Account;
     use 0x1::Signer;
 
@@ -135,7 +135,7 @@ script {
     ) {
         let offer_address = 0x101;
         let deal_id = 0;
-        CDP2::close_by_margin_call<XFI, ETH>(margin_call_check_signer, offer_address, deal_id);
+        CDP::close_by_margin_call<XFI, ETH>(margin_call_check_signer, offer_address, deal_id);
 
         assert(!Account::has_balance<ETH>(Signer::address_of(offer_owner_signer)), 101);
     }
@@ -148,7 +148,7 @@ script {
 /// signer: 0x104
 /// current_time: 200
 script {
-    use 0x1::CDP2;
+    use 0x1::CDP;
     use 0x1::Account;
 
     use 0x1::Coins::ETH;
@@ -160,13 +160,13 @@ script {
     ) {
         let offer_address = 0x101;
         let deal_id = 0;
-        CDP2::close_by_margin_call<XFI, ETH>(margin_call_check_signer, offer_address, deal_id);
+        CDP::close_by_margin_call<XFI, ETH>(margin_call_check_signer, offer_address, deal_id);
 
         let eth_1 = 1000000000000000000;
         assert(Account::balance<ETH>(offer_owner_signer) == eth_1, 101);
 
         // offer still exists
-        assert(CDP2::has_offer<XFI, ETH>(offer_address), 102);
+        assert(CDP::has_offer<XFI, ETH>(offer_address), 102);
     }
 }
 
