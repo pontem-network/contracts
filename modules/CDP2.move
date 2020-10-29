@@ -1,5 +1,4 @@
 address 0x1 {
-
 /// Every deal has two generic params:
 ///
 /// - Offered - the offered currency which user would get in
@@ -16,7 +15,7 @@ module CDP2 {
     use 0x1::Vector;
     use 0x1::Event;
     use 0x1::Time;
-    use 0x1::Math::{Self, Num, num_create as num, num_unpack};
+    use 0x1::Math::{Self, num, num_unpack};
 
     const MAX_LTV: u64 = 6600;  // 66.00%
     const SOFT_MARGIN_CALL: u128 = 150;
@@ -33,24 +32,23 @@ module CDP2 {
     const ERR_NO_ORACLE_PRICE: u64 = 2;
     const ERR_HARD_MC_HAS_OCCURRED: u64 = 3;
     const ERR_HARD_MC_HAS_NOT_OCCURRED: u64 = 31;
+    const ERR_DEAL_DOES_NOT_EXIST: u64 = 10;
+    const ERR_SECURITY_DOES_NOT_EXIST: u64 = 11;
 
-    struct DealParams {
+    resource struct Offer<Offered: copyable, Collateral: copyable> {
+        deposit: Dfinance::T<Offered>,
+        collateral: Dfinance::T<Collateral>,
+        proofs: vector<Security::Proof>,
+        // ID COUNTER
+        deals_made: u64,
+        deals: vector<Deal<Offered, Collateral>>,
+        // whether Offer is available for deals
+        is_active: bool,
+
         // < 6700, 2 signs after comma
         ltv: u64,
         // 2 signs after comma
         interest_rate: u64,
-    }
-
-    resource struct Offer<Offered: copyable, Collateral: copyable> {
-        deposit: Dfinance::T<Offered>,
-        params: DealParams,
-
-        collateral: Dfinance::T<Collateral>,
-        proofs: vector<Security::Proof>,
-        deals_made: u64, // ID COUNTER
-        deals: vector<Deal<Offered, Collateral>>,
-
-        is_active: bool  // whether Offer is available for deals
     }
 
     struct Deal<Offered: copyable, Collateral: copyable> {
@@ -59,10 +57,17 @@ module CDP2 {
         soft_mc: u128,
         hard_mc: u128,
         created_at: u64,
-        offered_amt: u128,
         interest_rate: u64,
+        offered_amt: u128,
         collateral_amt: u128,
     }
+
+    /// Marker for Security to use in `For` generic
+    struct CDP<Offered: copyable, Collateral: copyable> {
+        lender: address,
+        deal_id: u64
+    }
+
 
     public fun has_offer<Offered: copyable, Collateral: copyable>(lender: address): bool {
         exists<Offer<Offered, Collateral>>(lender)
@@ -81,22 +86,23 @@ module CDP2 {
         assert(Coins::has_price<Offered, Collateral>(), ERR_NO_ORACLE_PRICE);
 
         let deposit_amt = Dfinance::value(&to_deposit);
-        let params      = DealParams { ltv, interest_rate };
 
         move_to(account, Offer<Offered, Collateral> {
             deposit: to_deposit,
-            params: copy params,
-            is_active: true,
             collateral: Dfinance::zero<Collateral>(),
             proofs: Vector::empty<Security::Proof>(),
             deals: Vector::empty<Deal<Offered, Collateral>>(),
-            deals_made: 0
+            deals_made: 0,
+            is_active: true,
+            ltv,
+            interest_rate,
         });
 
         Event::emit(account, OfferCreatedEvent<Offered, Collateral> {
             lender: Signer::address_of(account),
             deposit_amt,
-            params,
+            ltv,
+            interest_rate,
         });
     }
 
@@ -108,8 +114,7 @@ module CDP2 {
         lender: address,
         to_deposit: Dfinance::T<Offered>
     ) acquires Offer {
-
-        let offer       = borrow_global_mut<Offer<Offered, Collateral>>(lender);
+        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
         let deposit_amt = Dfinance::value(&to_deposit);
 
         Dfinance::deposit<Offered>(&mut offer.deposit, to_deposit);
@@ -118,11 +123,6 @@ module CDP2 {
             deposit_amt,
             lender,
         });
-    }
-
-    struct CDP<Offered: copyable, Collateral: copyable> {
-        lender: address,
-        deal_id: u64
     }
 
     /// TBD
@@ -135,57 +135,51 @@ module CDP2 {
         collateral: Dfinance::T<Collateral>,
         amount_wanted: u128,
     ): (Dfinance::T<Offered>, Security<CDP<Offered, Collateral>>) acquires Offer {
+        let exchange_rate = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
 
         let offered_decimals = Dfinance::decimals<Offered>();
-        let collateral_amt   = Dfinance::value<Collateral>(&collateral);
-        let exchange_rate    = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
-        let collateral_num   = num(collateral_amt, Dfinance::decimals<Collateral>());
-        let offered_num      = num(amount_wanted, offered_decimals);
+        let offered_num = num(amount_wanted, offered_decimals);
+
+        let collateral_amt = Dfinance::value<Collateral>(&collateral);
 
         // MAX_OFFER_AMOUNT = COLLATERAL * EXCHANGE_RATE
-        // - how much Offered could one get at max
+        // - how much of Offered tokens could one get at max
+        let max_offer_amount = Math::mul(num(collateral_amt, Dfinance::decimals<Collateral>()), exchange_rate);
+
         // LTV = DESIRED_OFFERED_COINS / COLLATERAL * EXCHANGE_RATE
         // - what is actual LTV for this deal
-        let max_offer_amount = Math::mul(collateral_num, exchange_rate);
-        let ltv_unscaled     = Math::div(offered_num, max_offer_amount);
-
-        // add assert(LTV < SYSTEM_MAX_LTV);
-        // add assert(LTV > DEAL_MIN_LTV)
-
+        let ltv_unscaled = Math::div(copy offered_num, max_offer_amount);
         let ltv = (Math::scale_to_decimals(ltv_unscaled, LTV_DECIMALS) as u64);
 
-        let offer         = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let offer_ltv     = offer.params.ltv;
-        let interest_rate = offer.params.interest_rate;
-
-        assert(ltv >= offer_ltv, ERR_INCORRECT_LTV); // OR ERR_LTV_TOO_SMALL
+        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
+        let offer_ltv = offer.ltv;
+        let interest_rate = offer.interest_rate;
+        assert(ltv < offer_ltv, ERR_INCORRECT_LTV);
 
         let offered = Dfinance::withdraw<Offered>(&mut offer.deposit, amount_wanted);
-        let (soft_mc, hard_mc) = compute_margin_calls(num(amount_wanted, offered_decimals));
 
-        let created_at  = Time::now();
-        let offered_amt = Dfinance::value(&offered);
-        let deal_params = DealParams { interest_rate, ltv };
+        let (soft_mc, hard_mc) = compute_margin_calls(offered_num);
 
         let deal_id = offer.deals_made;
-
         // Issue Security for this deal which will hold the deal params in it
-        let (security, proof) = Security::issue<CDP<Offered, Collateral>>(account, CDP {
-            lender,
-            deal_id,
-        });
+        let (security, proof) = Security::issue<CDP<Offered, Collateral>>(
+            account,
+            CDP {
+                lender,
+                deal_id,
+            });
 
+        let created_at = Time::now();
         let deal = Deal<Offered, Collateral> {
-            ltv,
             soft_mc,
             hard_mc,
             created_at,
-            offered_amt,
+            offered_amt: amount_wanted,
             collateral_amt,
             id: deal_id,
-            interest_rate: offer.params.interest_rate
+            ltv,
+            interest_rate,
         };
-
         // Update the bank with proof and collateral
         Vector::push_back(&mut offer.deals, deal);
         Vector::push_back(&mut offer.proofs, proof);
@@ -199,9 +193,10 @@ module CDP2 {
             hard_mc,
             created_at,
             collateral_amt,
-            params: deal_params,
             offered_amt: amount_wanted,
             borrower: Signer::address_of(account),
+            ltv,
+            interest_rate,
         });
 
         (offered, security)
@@ -214,17 +209,25 @@ module CDP2 {
         lender: address,
         deal_id: u64
     ) acquires Offer {
-
         let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let deal  = take_deal(&mut offer.deals, deal_id);
+        let Deal {
+            id: _,
+            soft_mc,
+            hard_mc,
+            created_at: _,
+            ltv,
+            interest_rate,
+            offered_amt,
+            collateral_amt
+        } = take_deal(&mut offer.deals, deal_id);
 
         let price = Coins::get_price<Offered, Collateral>();
 
-        // Offered is above the price at which collateral is no longer profitable
-        assert(price >= deal.hard_mc, ERR_HARD_MC_HAS_NOT_OCCURRED);
+        // Offered / Collateral is below the price of collateral profitability
+        assert(price <= hard_mc, ERR_HARD_MC_HAS_NOT_OCCURRED);
 
-        // If Hard MC is reached, then we can destroy the dealio
-        let collateral = Dfinance::withdraw(&mut offer.collateral, deal.collateral_amt);
+        // If Hard MC is reached, then we can destroy the deal
+        let collateral = Dfinance::withdraw(&mut offer.collateral, collateral_amt);
 
         // Give Collateral to the lender
         Account::deposit<Collateral>(account, lender, collateral);
@@ -232,12 +235,13 @@ module CDP2 {
         Event::emit(account, DealClosedOnMarginCallEvent<Offered, Collateral> {
             lender,
             deal_id,
-            collateral_amt: deal.collateral_amt,
-            offered_amt: deal.offered_amt,
+            collateral_amt: collateral_amt,
+            offered_amt: offered_amt,
             closed_at: Time::now(),
-            // params: ,
-            soft_mc: deal.soft_mc,
-            hard_mc: deal.hard_mc,
+            soft_mc,
+            hard_mc,
+            ltv,
+            interest_rate,
         });
     }
 
@@ -248,132 +252,123 @@ module CDP2 {
         account: &signer,
         security: Security<CDP<Offered, Collateral>>,
     ): Dfinance::T<Collateral> acquires Offer {
-
         let lender = Security::borrow(&security).lender;
-        let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let params = destroy_security(&mut offer.proofs, security);
-        let deal   = take_deal(&mut offer.deals, params.deal_id);
-        let price  = Coins::get_price<Offered, Collateral>();
+
+        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
+        let CDP { lender: _, deal_id } = resolve_security(&mut offer.proofs, security);
+
+        let Deal {
+            id: _,
+            soft_mc: _,
+            hard_mc,
+            created_at,
+            ltv,
+            interest_rate,
+            offered_amt,
+            collateral_amt
+        } = take_deal(&mut offer.deals, deal_id);
+        let offered_num = num(offered_amt, Dfinance::decimals<Offered>());
 
         // Offered is above the price at which collateral is no longer profitable
-        assert(price < deal.hard_mc, ERR_HARD_MC_HAS_OCCURRED);
+        let price = Coins::get_price<Offered, Collateral>();
+        assert(price > hard_mc, ERR_HARD_MC_HAS_OCCURRED);
 
-        // Now we can procceed to interest rate calculations
+        // Now we can proceed to interest rate calculations
 
         // min days since CDP created is 1
-        let days_past = Time::days_from(deal.created_at);
+        let days_past = Time::days_from(created_at);
         let days_past = if (days_past != 0) days_past else 1;
 
         // DAYS_HELD_MULTIPLIER = NUM_DAYS_CDP_HELD / 365
-        let ir_multiplier = Math::div(
+        let days_held_multiplier = Math::div(
             // max accuracy is 18 decimals
             num((days_past as u128) * MAX_ACCURACY_DIVISION_MULTIPLIER, 18),
             num(365, 0)
         );
-
-        let offered_num       = num(deal.offered_amt, Dfinance::decimals<Offered>());
-        let interest_rate_num = num((deal.interest_rate as u128), INTEREST_RATE_DECIMALS);
+        let interest_rate_num = num((interest_rate as u128), INTEREST_RATE_DECIMALS);
 
         // OFFERED_COINS_OWNED =
         //      OFFERED_COINS_INITIALLY_RECEIVED
         //      + ( OFFERED_COINS_INITIALLY_RECEIVED * INTEREST_RATE_IN_YEAR * DAYS_HELD_MULTIPLIER )
-        let pay_back_amt_num = Math::add(
+        let pay_back_num = Math::add(
             copy offered_num,
             Math::mul(
                 Math::mul(offered_num, interest_rate_num),
-                ir_multiplier
+                days_held_multiplier
             )
         );
-
-        let (pay_back_amt, _) = num_unpack(pay_back_amt_num);
+        let (pay_back_amt, _) = num_unpack(pay_back_num);
 
         // Return money by making a direct trasfer
         Account::pay_from_sender<Offered>(account, lender, pay_back_amt);
 
-        let collateral = Dfinance::withdraw(&mut offer.collateral, deal.collateral_amt);
+        let collateral = Dfinance::withdraw(&mut offer.collateral, collateral_amt);
 
         Event::emit(account, DealClosedOnBorrowerEvent<Offered, Collateral> {
             lender,
             pay_back_amt,
-            collateral_amt: deal.collateral_amt,
+            collateral_amt: collateral_amt,
             borrower: Signer::address_of(account),
+            ltv,
+            interest_rate,
         });
 
         (collateral)
     }
 
     /// Take deal from list or fail if didn't find the seached asset
-    fun take_deal<Off: copyable, Coll: copyable>(
-        deals: &mut vector<Deal<Off, Coll>>,
+    fun take_deal<Offered: copyable, Collateral: copyable>(
+        deals: &mut vector<Deal<Offered, Collateral>>,
         deal_id: u64
-    ): Deal<Off, Coll> {
+    ): Deal<Offered, Collateral> {
         let i = 0;
         let l = Vector::length(deals);
         while (i < l) {
-            let deal = Vector::borrow<Deal<Off, Coll>>(deals, i);
+            let deal = Vector::borrow<Deal<Offered, Collateral>>(deals, i);
             if (deal.id == deal_id) {
-                return Vector::remove<Deal<Off, Coll>>(deals, i)
+                return Vector::remove<Deal<Offered, Collateral>>(deals, i)
             };
             i = i + 1;
         };
-
-        // No deal at all!
-        abort 10
+        abort ERR_DEAL_DOES_NOT_EXIST
     }
 
     /// Walk through vector of Proofs to find match
-    fun destroy_security<Off: copyable, Coll: copyable>(
+    fun resolve_security<Offered: copyable, Collateral: copyable>(
         proofs: &mut vector<Security::Proof>,
-        sec: Security<CDP<Off, Coll>>
-    ): CDP<Off, Coll> {
+        security: Security<CDP<Offered, Collateral>>
+    ): CDP<Offered, Collateral> {
         let i = 0;
         let l = Vector::length(proofs);
         while (i < l) {
             let proof = Vector::borrow<Security::Proof>(proofs, i);
-
-            if (Security::can_prove(&sec, proof)) {
-                return Security::prove(sec, Vector::remove<Security::Proof>(proofs, i))
+            if (Security::can_prove(&security, proof)) {
+                return Security::prove(security, Vector::remove<Security::Proof>(proofs, i))
             };
-
             i = i + 1;
         };
-
-        abort 10
+        abort ERR_SECURITY_DOES_NOT_EXIST
     }
 
-    fun compute_margin_calls(amount_wanted: Num): (u128, u128) {
+    fun compute_margin_calls(amount_wanted: Math::Num): (u128, u128) {
+        // SMC = OFFERED_COINS * 1.3
         let soft_mc_multiplier = num(SOFT_MARGIN_CALL, 2);
+        let soft_mc_num = Math::mul(copy amount_wanted, soft_mc_multiplier);
+
+        // HMC = OFFERED_COINS * 1.5
         let hard_mc_multiplier = num(HARD_MARGIN_CALL, 2);
+        let hard_mc_num = Math::mul(amount_wanted, hard_mc_multiplier);
 
-        // SMC = OFFERED_COINS * 1.3 ; HMC = OFFERED_COINS * 1.5
-        let (soft_mc, _) = num_unpack(Math::mul(copy amount_wanted, soft_mc_multiplier));
-        let (hard_mc, _) = num_unpack(Math::mul(amount_wanted, hard_mc_multiplier));
-
+        let soft_mc = Math::scale_to_decimals(soft_mc_num, EXCHANGE_RATE_DECIMALS);
+        let hard_mc = Math::scale_to_decimals(hard_mc_num, EXCHANGE_RATE_DECIMALS);
         (soft_mc, hard_mc)
-    }
-
-    fun compute_offered_value_for_collateral<Offered: copyable, Collateral: copyable>(collateral: u128, ltv: u64): Num {
-        let exchange_rate = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
-        let ltv_rate = num((ltv as u128), LTV_DECIMALS);
-        let collateral = num(collateral, Dfinance::decimals<Collateral>());
-
-        // OFFERED_COINS_AVAILABLE_IN_EXCHANGE_FOR_COLLATERAL =
-        //     OFFERED_TO_COLLATERAL_EXCHANGE_RATE * COLLATERAL * LOAN_TO_VALUE_RATE
-        let offered_unscaled = Math::mul(
-            Math::mul(exchange_rate, collateral),
-            ltv_rate
-        );
-
-        let offered_decimals = Dfinance::decimals<Offered>();
-        let offered = Math::scale_to_decimals(offered_unscaled, offered_decimals);
-
-        num(offered, offered_decimals)
     }
 
     struct OfferCreatedEvent<Offered: copyable, Collateral: copyable> {
         deposit_amt: u128,
         lender: address,
-        params: DealParams,
+        ltv: u64,
+        interest_rate: u64,
     }
 
     struct OfferDepositedEvent<Offered: copyable, Collateral: copyable> {
@@ -395,7 +390,9 @@ module CDP2 {
         created_at: u64,
         soft_mc: u128,
         hard_mc: u128,
-        params: DealParams,
+
+        ltv: u64,
+        interest_rate: u64,
     }
 
     struct DealClosedOnBorrowerEvent<Offered: copyable, Collateral: copyable> {
@@ -403,6 +400,9 @@ module CDP2 {
         borrower: address,
         pay_back_amt: u128,
         collateral_amt: u128,
+
+        ltv: u64,
+        interest_rate: u64,
     }
 
     struct DealClosedOnMarginCallEvent<Offered: copyable, Collateral: copyable> {
@@ -413,7 +413,9 @@ module CDP2 {
         closed_at: u64,
         soft_mc: u128,
         hard_mc: u128,
-        // params: DealParams,
+
+        ltv: u64,
+        interest_rate: u64,
     }
 }
 }

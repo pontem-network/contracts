@@ -9,7 +9,7 @@ module Math {
 
     struct Num { value: u128, dec: u8 }
 
-    public fun num_create(value: u128, dec: u8): Num {
+    public fun num(value: u128, dec: u8): Num {
         Num { value, dec }
     }
 
@@ -33,7 +33,7 @@ module Math {
         let num1_scaled = num1 * pow_10(max_dec - dec1);
         let num2_scaled = num2 * pow_10(max_dec - dec2);
 
-        num_create(num1_scaled + num2_scaled, max_dec)
+        num(num1_scaled + num2_scaled, max_dec)
     }
 
     public fun pow(base: u64, exp: u8): u128 {
@@ -67,7 +67,7 @@ module Math {
         let num1_scaled = num1 * pow_10(max_dec - dec1);
         let num2_scaled = num2 * pow_10(max_dec - dec2);
 
-        num_create(num1_scaled - num2_scaled, max_dec)
+        num(num1_scaled - num2_scaled, max_dec)
     }
 
     public fun mul(val1: Num, val2: Num): Num {
@@ -89,7 +89,7 @@ module Math {
             ),
             U256::from_u128(scaling_factor)
         );
-        num_create(U256::as_u128(res), dec1)
+        num(U256::as_u128(res), dec1)
     }
 
     public fun div(val1: Num, val2: Num): Num {
@@ -111,7 +111,7 @@ module Math {
             ),
             U256::from_u128(num2)
         );
-        num_create(U256::as_u128(res), dec1)
+        num(U256::as_u128(res), dec1)
     }
 }
 }
