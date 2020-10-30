@@ -144,8 +144,8 @@ script {
 
 // 40 XFI / ETH
 /// price: xfi_eth 4000000000
-/// signer: 0x101
 /// signer: 0x104
+/// signer: 0x101
 /// current_time: 200
 script {
     use 0x1::CDP;
