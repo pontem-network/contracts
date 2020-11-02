@@ -117,7 +117,7 @@ module CDP {
         interest_rate: u64
     ) {
         assert(min_ltv <= MAX_LTV, ERR_INCORRECT_LTV);
-        assert(Coins::has_price<Offered, Collateral>(), ERR_NO_ORACLE_PRICE);
+        assert(Coins::has_price<Collateral, Offered>(), ERR_NO_ORACLE_PRICE);
 
         let deposit_amt = Dfinance::value(&to_deposit);
 
@@ -213,7 +213,7 @@ module CDP {
         collateral: Dfinance::T<Collateral>,
         amount_wanted: u128,
     ): (Dfinance::T<Offered>, Security<CDPSecurity<Offered, Collateral>>) acquires Offer {
-        let exchange_rate = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
+        let price = num(Coins::get_price<Collateral, Offered>(), EXCHANGE_RATE_DECIMALS);
 
         let offered_decimals = Dfinance::decimals<Offered>();
         let offered_num = num(amount_wanted, offered_decimals);
@@ -222,7 +222,7 @@ module CDP {
 
         // MAX_OFFER_AMOUNT = COLLATERAL * EXCHANGE_RATE
         // - how much of Offered tokens could one get at max
-        let max_offer_amount = Math::mul(num(collateral_amt, Dfinance::decimals<Collateral>()), exchange_rate);
+        let max_offer_amount = Math::mul(num(collateral_amt, Dfinance::decimals<Collateral>()), price);
 
         // LTV = DESIRED_OFFERED_COINS / COLLATERAL * EXCHANGE_RATE
         // - what is actual LTV for this deal
@@ -299,7 +299,7 @@ module CDP {
     public fun get_deal_status<Offered: copyable, Collateral: copyable>(
         deal: &Deal<Offered, Collateral>
     ): u8 {
-        let price = Coins::get_price<Offered, Collateral>();
+        let price = Coins::get_price<Collateral, Offered>();
 
         if (price >= deal.hard_mc) {
             STATUS_HARD_MC_REACHED
@@ -330,7 +330,7 @@ module CDP {
             collateral_amt,
         } = deal;
 
-        let price = Coins::get_price<Offered, Collateral>();
+        let price = Coins::get_price<Collateral, Offered>();
 
         // Offered / Collateral is below the price of collateral profitability
         assert(price <= hard_mc, ERR_HARD_MC_HAS_NOT_OCCURRED);
@@ -384,7 +384,7 @@ module CDP {
         let offered_num = num(offered_amt, Dfinance::decimals<Offered>());
 
         // Offered is above the price at which collateral is no longer profitable
-        let price = Coins::get_price<Offered, Collateral>();
+        let price = Coins::get_price<Collateral, Offered>();
 
         assert(price > hard_mc, ERR_HARD_MC_HAS_OCCURRED);
 
