@@ -46,7 +46,7 @@ script {
         // 100 XFI
         let num_of_xfi_added = Dfinance::mint<XFI>(1000000000000);
         let offer_address = 0x101;
-        CDP::deposit_amount_to_offer<XFI, ETH>(signer1, offer_address, num_of_xfi_added);
+        CDP::deposit_to_offer<XFI, ETH>(signer1, offer_address, num_of_xfi_added);
     }
 }
 
