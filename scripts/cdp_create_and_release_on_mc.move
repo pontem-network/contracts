@@ -117,26 +117,21 @@ script {
 
 // 99 * 10^8
 /// price: eth_xfi 9900000000
-/// signers: 0x101, 0x104
+/// signers: 0x104
 /// current_time: 200
 /// aborts_with: 31
 script {
     use 0x1::CDP;
-    use 0x1::Account;
-    use 0x1::Signer;
 
     use 0x1::Coins::ETH;
     use 0x1::XFI::T as XFI;
 
     fun do_not_release_collateral_if_hard_margin_call_does_not_occur(
-        offer_owner_signer: &signer,
         margin_call_check_signer: &signer
     ) {
         let offer_address = 0x101;
         let deal_id = 0;
         CDP::close_by_margin_call<XFI, ETH>(margin_call_check_signer, offer_address, deal_id);
-
-        assert(!Account::has_balance<ETH>(Signer::address_of(offer_owner_signer)), 101);
     }
 }
 

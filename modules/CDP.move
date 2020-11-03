@@ -292,7 +292,7 @@ module CDP {
         let offer     = borrow_global<Offer<Offered, Collateral>>(lender);
         let (deal, _) = find_deal<Offered, Collateral>(&offer.deals, deal_id);
 
-        get_deal_status<Offered, Collateral>(&deal)
+        get_deal_status<Offered, Collateral>(deal)
     }
 
     /// Get status of the dealio - whether it has reached soft/hard MC or not
@@ -301,9 +301,9 @@ module CDP {
     ): u8 {
         let price = Coins::get_price<Collateral, Offered>();
 
-        if (price >= deal.hard_mc) {
+        if (price <= deal.hard_mc) {
             STATUS_HARD_MC_REACHED
-        } else if (price >= deal.soft_mc) {
+        } else if (price <= deal.soft_mc) {
             STATUS_SOFT_MC_REACHED
         } else {
             STATUS_DEAL_OKAY
@@ -318,7 +318,18 @@ module CDP {
         deal_id: u64
     ) acquires Offer {
         let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let (deal, pos) = find_deal(&offer.deals, deal_id);
+        let (deal_ref, pos) = find_deal(&offer.deals, deal_id);
+
+        let status = get_deal_status(deal_ref);
+
+        assert(status == STATUS_HARD_MC_REACHED, ERR_HARD_MC_HAS_NOT_OCCURRED);
+
+        // Offered / Collateral is below the price of collateral profitability
+        // let price = Coins::get_price<Collateral, Offered>();
+        // assert(price <= hard_mc, ERR_HARD_MC_HAS_NOT_OCCURRED);
+
+        // Margin call check - Okay; now we can remove the deal from the list
+
         let Deal {
             id: _,
             soft_mc,
@@ -328,15 +339,7 @@ module CDP {
             interest_rate,
             offered_amt,
             collateral_amt,
-        } = deal;
-
-        let price = Coins::get_price<Collateral, Offered>();
-
-        // Offered / Collateral is below the price of collateral profitability
-        assert(price <= hard_mc, ERR_HARD_MC_HAS_NOT_OCCURRED);
-
-        // Margin call check - Okay; now we can remove the deal from the list
-        Vector::remove(&mut offer.deals, pos);
+        } = Vector::remove(&mut offer.deals, pos);
 
         // If Hard MC is reached, then we can destroy the deal
         let collateral = Dfinance::withdraw(&mut offer.collateral, collateral_amt);
@@ -368,29 +371,29 @@ module CDP {
 
         let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
         let CDPSecurity { lender: _, deal_id } = resolve_security(&mut offer.proofs, security);
-        let (deal, pos) = find_deal(&offer.deals, deal_id);
+        let (deal_ref, pos) = find_deal(&offer.deals, deal_id);
+
+        let status = get_deal_status<Offered, Collateral>(deal_ref);
+
+        assert(status != STATUS_HARD_MC_REACHED, ERR_HARD_MC_HAS_OCCURRED);
+
+        // let price = Coins::get_price<Collateral, Offered>();
+        // assert(price > hard_mc, ERR_HARD_MC_HAS_OCCURRED);
 
         let Deal {
             id: _,
             soft_mc: _,
-            hard_mc,
+            hard_mc: _,
             created_at,
             ltv,
             interest_rate,
             offered_amt,
             collateral_amt
-        } = deal;
+        } = Vector::remove(&mut offer.deals, pos);
 
         let offered_num = num(offered_amt, Dfinance::decimals<Offered>());
 
-        // Offered is above the price at which collateral is no longer profitable
-        let price = Coins::get_price<Collateral, Offered>();
-
-        assert(price > hard_mc, ERR_HARD_MC_HAS_OCCURRED);
-
-        // Now we can proceed to interest rate calculations
-
-        Vector::remove(&mut offer.deals, pos);
+        // Interest rate calculations
 
         // min days since CDP created is 1
         let days_past = Time::days_from(created_at);
@@ -438,14 +441,14 @@ module CDP {
     fun find_deal<Offered: copyable, Collateral: copyable>(
         deals: &vector<Deal<Offered, Collateral>>,
         deal_id: u64
-    ): (Deal<Offered, Collateral>, u64) {
+    ): (&Deal<Offered, Collateral>, u64) {
         let i = 0;
         let l = Vector::length(deals);
 
         while (i < l) {
             let deal = Vector::borrow<Deal<Offered, Collateral>>(deals, i);
             if (deal.id == deal_id) {
-                return (*deal, i)  // Vector::remove<Deal<Offered, Collateral>>(deals, i)
+                return (deal, i)  // Vector::remove<Deal<Offered, Collateral>>(deals, i)
             };
             i = i + 1;
         };
