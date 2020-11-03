@@ -33,13 +33,11 @@ address 0x1 {
 /// every asset in chain.
 module Security {
 
-    public fun destroy_proof(proof: Proof) {
-        let Proof { by: _, id: _ } = proof;
-    }
-
+    use 0x1::Time;
     use 0x1::Signer;
 
-    const ERR_UNABLE_TO_PROVE : u64 = 1001;
+    const ERR_UNABLE_TO_PROVE : u64 = 101;
+    const ERR_NOT_EXPIRED : u64 = 102;
 
     resource struct Info {
         securities_count: u64
@@ -48,17 +46,22 @@ module Security {
     resource struct Security<For> {
         for: For,
         by: address,
-        id: u64
+        id: u64,
+        exp: u64
     }
 
     resource struct Proof {
         by: address,
-        id: u64
+        id: u64,
+        exp: u64
     }
 
+    /// Issue security with expiration date.
+    /// Expiration can be set to 0, then it will never expire.
     public fun issue<For>(
         account: &signer,
-        for: For
+        for: For,
+        exp: u64
     ): (Security<For>, Proof) acquires Info {
 
         let by = Signer::address_of(account);
@@ -72,9 +75,17 @@ module Security {
         };
 
         (
-            Security { for, by, id },
-            Proof { by, id }
+            Security { for, by, id, exp },
+            Proof { by, id, exp }
         )
+    }
+
+    /// Issue Security with no expiration date
+    public fun issue_forever<For>(
+        account: &signer,
+        for: For
+    ): (Security<For>, Proof) acquires Info {
+        issue<For>(account, for, 0)
     }
 
     /// Check whether user already has securities issued from his account
@@ -82,22 +93,12 @@ module Security {
         exists<Info>(account)
     }
 
-    public fun has_security<For>(account: address): bool {
-        exists<Security<For>>(account)
-    }
-
+    /// Get immutable reference to Security contents/details
     public fun borrow<For>(security: &Security<For>): &For {
         &security.for
     }
 
-    public fun put<For>(account: &signer, security: Security<For>) {
-        move_to<Security<For>>(account, security);
-    }
-
-    public fun take<For>(account: &signer): Security<For> acquires Security {
-        move_from<Security<For>>(Signer::address_of(account))
-    }
-
+    /// Safe check whether Security can be proved with Proof
     public fun can_prove<For>(security: &Security<For>, proof: &Proof): bool {
         (security.id == proof.id && security.by == proof.by)
     }
@@ -113,10 +114,28 @@ module Security {
         assert(security.by == proof.by, ERR_UNABLE_TO_PROVE);
         assert(security.id == proof.id, ERR_UNABLE_TO_PROVE);
 
-        let Security { by: _, id: _, for } = security;
-        let Proof { by: _, id: _ } = proof;
+        let Security { by: _, id: _, exp: _, for } = security;
+        let Proof { by: _, id: _, exp: _ } = proof;
 
         for
+    }
+
+    /// Destroy Security if it has expired (if expiration was set i.e. non-zero)
+    public fun destroy_expired_sec<For>(security: Security<For>): For {
+        assert(security.exp != 0, ERR_NOT_EXPIRED);
+        assert(security.exp <= Time::now(), ERR_NOT_EXPIRED);
+
+        let Security { exp: _, id: _, by: _, for } = security;
+
+        for
+    }
+
+    /// Destroy Proof if it has expired
+    public fun destroy_expired_proof(proof: Proof) {
+        assert(proof.exp != 0, ERR_NOT_EXPIRED);
+        assert(proof.exp <= Time::now(), ERR_NOT_EXPIRED);
+
+        let Proof { exp: _, id: _, by: _ } =  proof;
     }
 }
 

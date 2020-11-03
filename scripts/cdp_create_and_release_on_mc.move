@@ -60,7 +60,7 @@ script {
     use 0x1::Dfinance;
     use 0x1::Account;
     use 0x1::Signer;
-    use 0x1::Security;
+    use 0x1::SecurityStorage;
 
     use 0x1::Coins::ETH;
     use 0x1::XFI::T as XFI;
@@ -79,7 +79,9 @@ script {
             Signer::address_of(borrower_account),
             xfi_offered
         );
-        Security::put(borrower_account, cdp_security);
+
+        SecurityStorage::init<CDP::CDPSecurity<XFI, ETH>>(borrower_account);
+        SecurityStorage::push<CDP::CDPSecurity<XFI, ETH>>(borrower_account, cdp_security);
     }
 }
 
@@ -92,7 +94,7 @@ script {
     use 0x1::Dfinance;
     use 0x1::Account;
     use 0x1::Signer;
-    use 0x1::Security;
+    use 0x1::SecurityStorage;
 
     use 0x1::Coins::ETH;
     use 0x1::XFI::T as XFI;
@@ -111,7 +113,9 @@ script {
             Signer::address_of(borrower_account),
             xfi_offered
         );
-        Security::put(borrower_account, cdp_security);
+
+        SecurityStorage::init<CDP::CDPSecurity<XFI, ETH>>(borrower_account);
+        SecurityStorage::push<CDP::CDPSecurity<XFI, ETH>>(borrower_account, cdp_security);
     }
 }
 

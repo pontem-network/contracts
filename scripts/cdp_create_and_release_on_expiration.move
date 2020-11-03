@@ -43,7 +43,7 @@ script {
     use 0x1::Dfinance;
     use 0x1::Account;
     use 0x1::Signer;
-    use 0x1::Security;
+    use 0x1::SecurityStorage;
 
     use 0x1::Coins::ETH;
     use 0x1::XFI::T as XFI;
@@ -62,7 +62,9 @@ script {
             Signer::address_of(borrower_account),
             xfi_offered
         );
-        Security::put(borrower_account, cdp_security);
+
+        SecurityStorage::init<CDP::CDPSecurity<XFI, ETH>>(borrower_account);
+        SecurityStorage::push<CDP::CDPSecurity<XFI, ETH>>(borrower_account, cdp_security);
     }
 }
 
@@ -73,15 +75,15 @@ script {
 script {
     use 0x1::CDP;
     use 0x1::Account;
-    use 0x1::Security;
+    use 0x1::SecurityStorage;
 
     use 0x1::Coins::ETH;
     use 0x1::XFI::T as XFI;
 
     fun do_not_release_money_if_not_enough_xfi_to_pay_interest_rate(borrower_account: &signer) {
-        let cdp_security = Security::take<CDP::CDPSecurity<XFI, ETH>>(borrower_account);
-
+        let cdp_security = SecurityStorage::take<CDP::CDPSecurity<XFI, ETH>>(borrower_account, 0);
         let collateral = CDP::pay_back<XFI, ETH>(borrower_account, cdp_security);
+        
         Account::deposit_to_sender(borrower_account, collateral)
     }
 }
@@ -93,7 +95,7 @@ script {
     use 0x1::CDP;
     use 0x1::Account;
     use 0x1::Dfinance;
-    use 0x1::Security;
+    use 0x1::SecurityStorage;
 
     use 0x1::Coins::ETH;
     use 0x1::XFI::T as XFI;
@@ -103,7 +105,7 @@ script {
         let xfi_2 = 20000000000;
         Account::deposit_to_sender<XFI>(borrower_account, Dfinance::mint<XFI>(xfi_2));
 
-        let cdp_security = Security::take<CDP::CDPSecurity<XFI, ETH>>(borrower_account);
+        let cdp_security = SecurityStorage::take<CDP::CDPSecurity<XFI, ETH>>(borrower_account, 0);
 
         let collateral = CDP::pay_back<XFI, ETH>(borrower_account, cdp_security);
         let eth_1 = 1000000000000000000;

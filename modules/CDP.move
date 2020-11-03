@@ -242,7 +242,7 @@ module CDP {
 
         let deal_id = offer.deals_made;
         // Issue Security for this deal which will hold the deal params in it
-        let (security, proof) = Security::issue<CDPSecurity<Offered, Collateral>>(
+        let (security, proof) = Security::issue_forever<CDPSecurity<Offered, Collateral>>(
             account,
             CDPSecurity {
                 lender,
