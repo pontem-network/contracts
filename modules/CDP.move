@@ -15,7 +15,7 @@ module CDP {
     use 0x1::Vector;
     use 0x1::Event;
     use 0x1::Time;
-    use 0x1::Math::{Self, num, num_unpack};
+    use 0x1::Math::{Self, num};
 
     const MAX_LTV: u64 = 6600;  // 66.00%
     const SOFT_MARGIN_CALL: u128 = 150;
@@ -391,7 +391,8 @@ module CDP {
             collateral_amt
         } = Vector::remove(&mut offer.deals, pos);
 
-        let offered_num = num(offered_amt, Dfinance::decimals<Offered>());
+        let offered_decimals = Dfinance::decimals<Offered>();
+        let offered_num = num(offered_amt, offered_decimals);
 
         // Interest rate calculations
 
@@ -417,7 +418,8 @@ module CDP {
                 days_held_multiplier
             )
         );
-        let (pay_back_amt, _) = num_unpack(pay_back_num);
+        // it's in 18th dimension after Math::mul, need to scale down to `offered_decimals`
+        let pay_back_amt = Math::scale_to_decimals(pay_back_num, offered_decimals);
 
         // Return money by making a direct trasfer
         Account::pay_from_sender<Offered>(account, lender, pay_back_amt);
