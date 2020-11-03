@@ -1,4 +1,4 @@
-/// signer: 0x1
+/// signers: 0x1
 script {
     use 0x1::Dfinance;
     use 0x1::Coins::ETH;
@@ -10,8 +10,8 @@ script {
     }
 }
 
-/// signer: 0x101
-/// price: xfi_eth 100
+/// signers: 0x101
+/// price: eth_xfi 100
 script {
     use 0x1::CDP;
     use 0x1::Dfinance;
@@ -23,18 +23,18 @@ script {
     fun create_bank_for_0x101(lender_account: &signer) {
         // 200 * 10 ^ 10 => 200 XFI
         let num_of_xfi_available = Dfinance::mint<XFI>(2000000000000);
-        let ltv = 6600;  // 66% (should always be < 0.67)
+        let min_ltv = 1000;  // 66% (should always be < 0.67)
         let interest_rate = 1000;  // 10%
 
         assert(
             !CDP::has_offer<XFI, ETH>(Signer::address_of(lender_account)),
             108
         );
-        CDP::create_offer<XFI, ETH>(lender_account, num_of_xfi_available, ltv, interest_rate);
+        CDP::create_offer<XFI, ETH>(lender_account, num_of_xfi_available, min_ltv, interest_rate);
     }
 }
 
-/// signer: 0x102
+/// signers: 0x102
 script {
     use 0x1::CDP;
     use 0x1::Dfinance;
@@ -46,13 +46,13 @@ script {
         // 100 XFI
         let num_of_xfi_added = Dfinance::mint<XFI>(1000000000000);
         let offer_address = 0x101;
-        CDP::deposit_amount_to_offer<XFI, ETH>(signer1, offer_address, num_of_xfi_added);
+        CDP::deposit_to_offer<XFI, ETH>(signer1, offer_address, num_of_xfi_added);
     }
 }
 
 // 100 XFI / ETH
-/// price: xfi_eth 10000000000
-/// signer: 0x103
+/// price: eth_xfi 10000000000
+/// signers: 0x103
 /// current_time: 100
 /// aborts_with: 1
 script {
@@ -84,8 +84,8 @@ script {
 }
 
 // 100 XFI / ETH
-/// price: xfi_eth 10000000000
-/// signer: 0x103
+/// price: eth_xfi 10000000000
+/// signers: 0x103
 /// current_time: 100
 script {
     use 0x1::CDP;
@@ -116,36 +116,29 @@ script {
 }
 
 // 99 * 10^8
-/// price: xfi_eth 9900000000
-/// signer: 0x101
-/// signer: 0x104
+/// price: eth_xfi 9900000000
+/// signers: 0x104
 /// current_time: 200
 /// aborts_with: 31
 script {
     use 0x1::CDP;
-    use 0x1::Account;
-    use 0x1::Signer;
 
     use 0x1::Coins::ETH;
     use 0x1::XFI::T as XFI;
 
     fun do_not_release_collateral_if_hard_margin_call_does_not_occur(
-        offer_owner_signer: &signer,
         margin_call_check_signer: &signer
     ) {
         let offer_address = 0x101;
         let deal_id = 0;
         CDP::close_by_margin_call<XFI, ETH>(margin_call_check_signer, offer_address, deal_id);
-
-        assert(!Account::has_balance<ETH>(Signer::address_of(offer_owner_signer)), 101);
     }
 }
 
 
 // 40 XFI / ETH
-/// price: xfi_eth 4000000000
-/// signer: 0x104
-/// signer: 0x101
+/// price: eth_xfi 4000000000
+/// signers: 0x101, 0x104
 /// current_time: 200
 script {
     use 0x1::CDP;
@@ -169,8 +162,3 @@ script {
         assert(CDP::has_offer<XFI, ETH>(offer_address), 102);
     }
 }
-
-
-
-
-

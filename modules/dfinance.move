@@ -91,7 +91,7 @@ module Dfinance {
     }
 
     /// only 0x1 address and add denom descriptions, 0x1 holds information resource
-    public fun register_coin<Coin>(account: &signer, denom: vector<u8>, decimals: u8) {
+    public fun register_coin<Coin: copyable>(account: &signer, denom: vector<u8>, decimals: u8) {
         assert_can_register_coin(account);
 
         move_to<Info<Coin>>(account, Info {
@@ -141,15 +141,15 @@ module Dfinance {
         denom: vector<u8>
     ): T<Token<Tok>> {
 
-        // check if this token has never been registered
-        assert(!exists<Info<Token<Tok>>>(0x1), 1);
+        // check if this token type has never been registered
+        assert(!exists<Info<Tok>>(0x1), 1);
 
         // no more than DECIMALS MAX is allowed
         assert(decimals >= DECIMALS_MIN && decimals <= DECIMALS_MAX, 20);
 
         let owner = Signer::address_of(account);
 
-        register_token_info<Token<Tok>>(Info {
+        register_token_info<Tok>(Info {
             denom: copy denom,
             decimals,
             owner,
@@ -172,8 +172,7 @@ module Dfinance {
     }
 
     /// Created Info resource must be attached to 0x1 address.
-    /// Keeping this public until native function is ready.
-    fun register_token_info<Coin: resource>(info: Info<Coin>) {
+    fun register_token_info<Coin: copyable>(info: Info<Coin>) {
         let sig = create_signer(0x1);
         move_to<Info<Coin>>(&sig, info);
         destroy_signer(sig);

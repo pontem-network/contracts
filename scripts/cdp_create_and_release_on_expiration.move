@@ -1,4 +1,4 @@
-/// signer: 0x1
+/// signers: 0x1
 script {
     use 0x1::Dfinance;
     use 0x1::Coins::ETH;
@@ -10,8 +10,8 @@ script {
     }
 }
 
-/// signer: 0x101
-/// price: xfi_eth 100
+/// signers: 0x101
+/// price: eth_xfi 10000000000
 script {
     use 0x1::CDP;
     use 0x1::Dfinance;
@@ -23,20 +23,20 @@ script {
     fun create_bank_for_0x101(lender_account: &signer) {
         // 200 * 10 ^ 10 => 200 XFI
         let num_of_xfi_available = Dfinance::mint<XFI>(2000000000000);
-        let ltv = 6600;  // 66% (should always be < 0.67)
+        let min_ltv = 1000;  // 66% (should always be < 0.67)
         let interest_rate = 1000;  // 10%
 
         assert(
             !CDP::has_offer<XFI, ETH>(Signer::address_of(lender_account)),
             108
         );
-        CDP::create_offer<XFI, ETH>(lender_account, num_of_xfi_available, ltv, interest_rate);
+        CDP::create_offer<XFI, ETH>(lender_account, num_of_xfi_available, min_ltv, interest_rate);
     }
 }
 
 // 100 XFI / ETH
-/// price: xfi_eth 10000000000
-/// signer: 0x103
+/// price: eth_xfi 10000000000
+/// signers: 0x103
 /// current_time: 100
 script {
     use 0x1::CDP;
@@ -66,8 +66,8 @@ script {
     }
 }
 
-/// price: xfi_eth 10000000000
-/// signer: 0x103
+/// price: eth_xfi 10000000000
+/// signers: 0x103
 /// current_time: 200
 /// aborts_with: 10
 script {
@@ -86,8 +86,8 @@ script {
     }
 }
 
-/// price: xfi_eth 10000000000
-/// signer: 0x103
+/// price: eth_xfi 10000000000
+/// signers: 0x103
 /// current_time: 200
 script {
     use 0x1::CDP;
@@ -112,8 +112,3 @@ script {
         Account::deposit_to_sender(borrower_account, collateral)
     }
 }
-
-
-
-
-
