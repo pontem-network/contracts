@@ -26,13 +26,13 @@ module Time {
 
     public fun days_from(ts: u64): u64 acquires CurrentTimestamp {
         let rn = now();
-        assert(rn > ts, 0);
+        assert(rn >= ts, 0);
         (rn - ts) / SECONDS_IN_DAY
     }
 
     public fun minutes_from(ts: u64): u64 acquires CurrentTimestamp {
         let rn = now();
-        assert(rn > ts, 0);
+        assert(rn >= ts, 0);
         (rn - ts) / SECONDS_IN_MIN
     }
 

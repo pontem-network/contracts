@@ -30,7 +30,7 @@ script {
             !CDP::has_offer<XFI, ETH>(Signer::address_of(lender_account)),
             108
         );
-        CDP::create_offer<XFI, ETH>(lender_account, num_of_xfi_available, min_ltv, interest_rate);
+        CDP::create_offer<XFI, ETH>(lender_account, num_of_xfi_available, min_ltv, interest_rate, false);
     }
 }
 

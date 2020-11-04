@@ -30,7 +30,7 @@ script {
             !CDP::has_offer<XFI, ETH>(Signer::address_of(lender_account)),
             108
         );
-        CDP::create_offer<XFI, ETH>(lender_account, num_of_xfi_available, min_ltv, interest_rate);
+        CDP::create_offer<XFI, ETH>(lender_account, num_of_xfi_available, min_ltv, interest_rate, false);
     }
 }
 
@@ -83,7 +83,7 @@ script {
     fun do_not_release_money_if_not_enough_xfi_to_pay_interest_rate(borrower_account: &signer) {
         let cdp_security = SecurityStorage::take<CDP::CDPSecurity<XFI, ETH>>(borrower_account, 0);
         let collateral = CDP::pay_back<XFI, ETH>(borrower_account, cdp_security);
-        
+
         Account::deposit_to_sender(borrower_account, collateral)
     }
 }
