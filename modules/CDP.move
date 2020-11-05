@@ -25,7 +25,7 @@ module CDP {
     const LTV_100_PERCENT: u64 = 10000;
 
     const LTV_DECIMALS: u8 = 2;
-    const INTEREST_RATE_DECIMALS: u8 = 2;
+    const INTEREST_RATE_DECIMALS: u8 = 4;
 
     // 10^18
     const MAX_ACCURACY_DIVISION_MULTIPLIER: u128 = 1000000000000000000;
@@ -139,6 +139,23 @@ module CDP {
         )
     }
 
+    /// Create an Offer disallowing DRO
+    public fun create_offer_without_dro<Offered: copyable, Collateral: copyable>(
+        account: &signer,
+        to_deposit: Dfinance::T<Offered>,
+        min_ltv: u64,
+        interest_rate: u64,
+    ) {
+        create_offer<Offered, Collateral>(
+            account,
+            to_deposit,
+            min_ltv,
+            interest_rate,
+            false,
+            0
+        )
+    }
+
     /// Create an Offer by depositing some amount of Offered currency.
     /// After that anyone can make a deal in given currency pair and put his
     /// Collateral for Offered.
@@ -243,7 +260,7 @@ module CDP {
     /// Make deal with existing Offer (or Bank). Ask for some amount
     /// of Offered currency. If LTV for this amount/collateral is less
     /// than MIN and MAX LTV settings, deal will be make
-    public fun make_cdp_deal<Offered: copyable, Collateral: copyable>(
+    public fun make_deal<Offered: copyable, Collateral: copyable>(
         account: &signer,
         lender: address,
         collateral: Dfinance::T<Collateral>,
@@ -437,18 +454,13 @@ module CDP {
         let days_past = Time::days_from(created_at);
         let days_past = if (days_past != 0) days_past else 1;
 
-        0x1::Debug::print<u64>(&days_past);
-
-        
-
-
         // DAYS_HELD_MULTIPLIER = NUM_DAYS_CDP_HELD / 365
         let days_held_multiplier = Math::div(
             // max accuracy is 18 decimals
             num((days_past as u128) * MAX_ACCURACY_DIVISION_MULTIPLIER, 18),
             num(365, 0)
         );
-        let interest_rate_num = num((interest_rate as u128), INTEREST_RATE_DECIMALS);
+        let interest_rate_num = num((interest_rate as u128), 4);
 
         // OFFERED_COINS_OWNED =
         //      OFFERED_COINS_INITIALLY_RECEIVED
@@ -463,8 +475,6 @@ module CDP {
 
         // it's in 18th dimension after Math::mul, need to scale down to `offered_decimals`
         let pay_back_amt = Math::scale_to_decimals(pay_back_num, offered_decimals);
-
-        0x1::Debug::print<u128>(&pay_back_amt);
 
         assert(Account::balance<Offered>(account) >= pay_back_amt, ERR_NOT_ENOUGH_MONEY);
 

@@ -11,7 +11,6 @@
 // For more information see:
 // https://docs.google.com/spreadsheets/d/1E5r40dOtfd_fGvpMXh98PykJYXezJ8HuLzQZTuICK1Q/edit#gid=1094305678
 
-
 /// signers: 0x1
 script {
     use 0x1::Dfinance;
@@ -186,6 +185,7 @@ script {
 
     use 0x1::Account;
     use 0x1::Security;
+    use 0x1::Dfinance;
     use 0x1::Coins::ETH;
     use 0x1::XFI::T as XFI;
     use 0x1::SecurityStorage;
@@ -201,8 +201,12 @@ script {
 
         assert(status == 2, 1); // STATUS_SOFT_MC_REACHED
 
-        // 30821917808219178000
-        // 30000000000000000000 // 30 XFI + 0.8... INTEREST RATE
+        // 30.000000000000000000 // 30 XFI + 0.008... INTEREST RATE
+        // 30.008219178082191780 // Expected total pay back sum
+
+        // just enough to pay interest rate
+        let xfi_ret  = Dfinance::mint<XFI>(8219178082191780);
+        Account::deposit_to_sender<XFI>(account, xfi_ret);
 
         let collateral = CDP::pay_back(account, security);
         Account::deposit_to_sender<ETH>(account, collateral);
