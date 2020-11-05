@@ -78,7 +78,7 @@ script {
         // 1 ETH Collateral value
         let collateral = Dfinance::mint<ETH>(1000000000000000000);
 
-        let (xfi, security) = CDP::make_cdp_deal<XFI, ETH>(
+        let (xfi, security) = CDP::make_deal<XFI, ETH>(
             account,
             0xDF1,
             collateral,

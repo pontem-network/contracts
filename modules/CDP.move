@@ -460,7 +460,7 @@ module CDP {
             num((days_past as u128) * MAX_ACCURACY_DIVISION_MULTIPLIER, 18),
             num(365, 0)
         );
-        let interest_rate_num = num((interest_rate as u128), 4);
+        let interest_rate_num = num((interest_rate as u128), INTEREST_RATE_DECIMALS);
 
         // OFFERED_COINS_OWNED =
         //      OFFERED_COINS_INITIALLY_RECEIVED
