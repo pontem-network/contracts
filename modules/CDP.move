@@ -1,4 +1,5 @@
 address 0x1 {
+
 /// Every deal has two generic params:
 ///
 /// - Offered - the offered currency which user would get in
@@ -21,20 +22,30 @@ module CDP {
     const SOFT_MARGIN_CALL: u128 = 150;
     const HARD_MARGIN_CALL: u128 = 130;
     const EXCHANGE_RATE_DECIMALS: u8 = 8;
-    const LTV_DECIMALS: u8 = 4;
     const LTV_100_PERCENT: u64 = 10000;
+
+    const LTV_DECIMALS: u8 = 2;
     const INTEREST_RATE_DECIMALS: u8 = 4;
+
     // 10^18
     const MAX_ACCURACY_DIVISION_MULTIPLIER: u128 = 1000000000000000000;
 
-    const ERR_INCORRECT_LTV: u64 = 1;
-    const ERR_NO_ORACLE_PRICE: u64 = 2;
-    const ERR_HARD_MC_HAS_OCCURRED: u64 = 3;
-    const ERR_HARD_MC_HAS_NOT_OCCURRED: u64 = 31;
-    const ERR_DEAL_DOES_NOT_EXIST: u64 = 10;
+    // offer creation constants start with 100
+    const ERR_INCORRECT_LTV: u64 = 101;
+    const ERR_NO_ORACLE_PRICE: u64 = 102;
+    const ERR_ZERO_DRO_GATE: u64 = 103;
+
+    // deal close params
+    const ERR_HARD_MC_HAS_OCCURRED: u64 = 301;
+    const ERR_HARD_MC_HAS_NOT_OCCURRED: u64 = 302;
+    const ERR_DEAL_DOES_NOT_EXIST: u64 = 303;
+    const ERR_NOT_ENOUGH_MONEY: u64 = 304;
+
+    const ERR_ZERO_AMOUNT: u64 = 201;
+
     const ERR_SECURITY_DOES_NOT_EXIST: u64 = 11;
-    const ERR_OFFER_INACTIVE: u64 = 101;
-    const ERR_CANT_WITHDRAW: u64 = 100;
+    const ERR_OFFER_INACTIVE: u64 = 201;
+    const ERR_CANT_WITHDRAW: u64 = 200;
 
     // deal statuses
     const STATUS_DEAL_OKAY: u8 = 1;
@@ -55,6 +66,12 @@ module CDP {
         min_ltv: u64,
         // 2 signs after comma
         interest_rate: u64,
+        // whether to allow issuing new coins
+        allow_dro: bool,
+
+        // how much time DRO owner has until deal can be
+        // liquidated by lender
+        dro_buy_gate: u64,
     }
 
     struct Deal<Offered: copyable, Collateral: copyable> {
@@ -68,20 +85,26 @@ module CDP {
         collateral_amt: u128,
     }
 
-    /// Marker for Security to use in `For` generic
-    struct CDPSecurity<Offered: copyable, Collateral: copyable> {
+    /// Marker for CDP Security to use in `For` generic
+    struct CDP<Offered: copyable, Collateral: copyable> {
         lender: address,
         deal_id: u64
     }
 
-    /// Get lender and deal_id from CDPSecurity.
+    /// Marker for DRO Security to use in `For` generic
+    struct DRO<Offered: copyable, Collateral: copyable> {
+        lender: address,
+        deal_id: u64
+    }
+
+    /// Get lender and deal_id from CDP.
     /// ```
     /// let sec = ...; // get security somehow
     /// let cdp = Security::borrow(sec);
     /// let (lender, deal_id) = CDP::read_security(cdp);
     /// ```
     public fun read_security<Offered: copyable, Collateral: copyable>(
-        cdp: &CDPSecurity<Offered, Collateral>
+        cdp: &CDP<Offered, Collateral>
     ): (address, u64) {
         (
             cdp.lender,
@@ -94,16 +117,42 @@ module CDP {
         exists<Offer<Offered, Collateral>>(lender)
     }
 
-    /// Read details from existing offer: min ltv, interest_rate and is_active
+    /// Read details from existing offer:
+    /// - deposit amount
+    /// - min ltv,
+    /// - interest_rate
+    /// - is_active
+    /// - allow_dro
+    /// - dro_buy_gate (is allowed)
     public fun get_offer_details<Offered: copyable, Collateral: copyable>(
         lender: address
-    ): (u64, u64, bool) acquires Offer {
+    ): (u128, u64, u64, bool, bool, u64) acquires Offer {
         let off = borrow_global<Offer<Offered, Collateral>>(lender);
 
         (
+            Dfinance::value(&off.deposit),
             off.min_ltv,
             off.interest_rate,
-            off.is_active
+            off.is_active,
+            off.allow_dro,
+            off.dro_buy_gate
+        )
+    }
+
+    /// Create an Offer disallowing DRO
+    public fun create_offer_without_dro<Offered: copyable, Collateral: copyable>(
+        account: &signer,
+        to_deposit: Dfinance::T<Offered>,
+        min_ltv: u64,
+        interest_rate: u64,
+    ) {
+        create_offer<Offered, Collateral>(
+            account,
+            to_deposit,
+            min_ltv,
+            interest_rate,
+            false,
+            0
         )
     }
 
@@ -114,10 +163,13 @@ module CDP {
         account: &signer,
         to_deposit: Dfinance::T<Offered>,
         min_ltv: u64,
-        interest_rate: u64
+        interest_rate: u64,
+        allow_dro: bool,
+        dro_buy_gate: u64
     ) {
-        assert(min_ltv <= MAX_LTV, ERR_INCORRECT_LTV);
+        assert(min_ltv < MAX_LTV, ERR_INCORRECT_LTV);
         assert(Coins::has_price<Collateral, Offered>(), ERR_NO_ORACLE_PRICE);
+        assert(allow_dro == false || dro_buy_gate > 0, ERR_ZERO_DRO_GATE);
 
         let deposit_amt = Dfinance::value(&to_deposit);
 
@@ -129,7 +181,9 @@ module CDP {
             deals_made: 0,
             is_active: true,
             min_ltv,
+            allow_dro,
             interest_rate,
+            dro_buy_gate
         });
 
         Event::emit(account, OfferCreatedEvent<Offered, Collateral> {
@@ -163,7 +217,7 @@ module CDP {
     /// Deposit additional assets into the Offer.
     /// Anyone can deposit to any Offer except that he won't get anything
     /// in return for his investment.
-    public fun deposit_to_offer<Offered: copyable, Collateral: copyable>(
+    public fun deposit<Offered: copyable, Collateral: copyable>(
         account: &signer,
         lender: address,
         to_deposit: Dfinance::T<Offered>
@@ -187,7 +241,7 @@ module CDP {
         let lender = Signer::address_of(account);
         let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
 
-        assert(withdraw_amt < Dfinance::value(&offer.deposit), ERR_CANT_WITHDRAW);
+        assert(withdraw_amt <= Dfinance::value(&offer.deposit), ERR_CANT_WITHDRAW);
 
         Dfinance::withdraw(&mut offer.deposit, withdraw_amt)
     }
@@ -203,31 +257,44 @@ module CDP {
         Dfinance::withdraw(&mut offer.deposit, amt)
     }
 
-    /// TBD
     /// Make deal with existing Offer (or Bank). Ask for some amount
     /// of Offered currency. If LTV for this amount/collateral is less
     /// than MIN and MAX LTV settings, deal will be make
-    public fun make_cdp_deal<Offered: copyable, Collateral: copyable>(
+    public fun make_deal<Offered: copyable, Collateral: copyable>(
         account: &signer,
         lender: address,
         collateral: Dfinance::T<Collateral>,
         amount_wanted: u128,
-    ): (Dfinance::T<Offered>, Security<CDPSecurity<Offered, Collateral>>) acquires Offer {
+    ): (Dfinance::T<Offered>, Security<CDP<Offered, Collateral>>) acquires Offer {
+
         let price = num(Coins::get_price<Collateral, Offered>(), EXCHANGE_RATE_DECIMALS);
 
-        let offered_decimals = Dfinance::decimals<Offered>();
-        let offered_num = num(amount_wanted, offered_decimals);
+        let offered_dec    = Dfinance::decimals<Offered>();
+        let collateral_dec = Dfinance::decimals<Collateral>();
+        let collateral_amt = Dfinance::value(&collateral);
 
-        let collateral_amt = Dfinance::value<Collateral>(&collateral);
+        assert(amount_wanted > 0, ERR_ZERO_AMOUNT);
+        assert(collateral_amt > 0, ERR_ZERO_AMOUNT);
 
-        // MAX_OFFER_AMOUNT = COLLATERAL * EXCHANGE_RATE
-        // - how much of Offered tokens could one get at max
-        let max_offer_amount = Math::mul(num(collateral_amt, Dfinance::decimals<Collateral>()), price);
+        // MAX OFFER in Offered (1to1) = COLL_AMT * COLL_OFF_PRICE;
+        let max_offer = {
+            let coll    = num(collateral_amt, collateral_dec);
+            let max_off = Math::mul(coll, copy price);
 
-        // LTV = DESIRED_OFFERED_COINS / COLLATERAL * EXCHANGE_RATE
-        // - what is actual LTV for this deal
-        let ltv_unscaled = Math::div(copy offered_num, max_offer_amount);
-        let ltv = (Math::scale_to_decimals(ltv_unscaled, LTV_DECIMALS) as u64);
+            max_off
+        };
+
+        let wanted_num = num(amount_wanted, offered_dec);
+
+        // LTV = WANTED / MAX * 100; 2 decimals
+        let ltv = {
+            let ltv_perc = Math::div(copy wanted_num, max_offer);
+            let ltv_perc = Math::scale_to_decimals(ltv_perc, 2);
+
+            ((ltv_perc * 100) as u64)
+        };
+
+        let (soft_mc, hard_mc) = compute_margin_calls(wanted_num);
 
         let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
         let min_ltv = offer.min_ltv;
@@ -237,14 +304,12 @@ module CDP {
         assert(ltv >= min_ltv && ltv <= MAX_LTV, ERR_INCORRECT_LTV); // Offer LTV = MIN LTV
 
         let offered = Dfinance::withdraw<Offered>(&mut offer.deposit, amount_wanted);
-
-        let (soft_mc, hard_mc) = compute_margin_calls(offered_num);
-
         let deal_id = offer.deals_made;
+
         // Issue Security for this deal which will hold the deal params in it
-        let (security, proof) = Security::issue_forever<CDPSecurity<Offered, Collateral>>(
+        let (security, proof) = Security::issue_forever<CDP<Offered, Collateral>>(
             account,
-            CDPSecurity {
+            CDP {
                 lender,
                 deal_id,
             });
@@ -296,7 +361,7 @@ module CDP {
     }
 
     /// Get status of the dealio - whether it has reached soft/hard MC or not
-    public fun get_deal_status<Offered: copyable, Collateral: copyable>(
+    fun get_deal_status<Offered: copyable, Collateral: copyable>(
         deal: &Deal<Offered, Collateral>
     ): u8 {
         let price = Coins::get_price<Collateral, Offered>();
@@ -319,16 +384,9 @@ module CDP {
     ) acquires Offer {
         let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
         let (deal_ref, pos) = find_deal(&offer.deals, deal_id);
-
         let status = get_deal_status(deal_ref);
 
         assert(status == STATUS_HARD_MC_REACHED, ERR_HARD_MC_HAS_NOT_OCCURRED);
-
-        // Offered / Collateral is below the price of collateral profitability
-        // let price = Coins::get_price<Collateral, Offered>();
-        // assert(price <= hard_mc, ERR_HARD_MC_HAS_NOT_OCCURRED);
-
-        // Margin call check - Okay; now we can remove the deal from the list
 
         let Deal {
             id: _,
@@ -365,20 +423,16 @@ module CDP {
     /// Collateral is returned on success.
     public fun pay_back<Offered: copyable, Collateral: copyable>(
         account: &signer,
-        security: Security<CDPSecurity<Offered, Collateral>>,
+        security: Security<CDP<Offered, Collateral>>,
     ): Dfinance::T<Collateral> acquires Offer {
         let lender = Security::borrow(&security).lender;
 
         let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let CDPSecurity { lender: _, deal_id } = resolve_security(&mut offer.proofs, security);
+        let CDP { lender: _, deal_id } = resolve_security(&mut offer.proofs, security);
         let (deal_ref, pos) = find_deal(&offer.deals, deal_id);
-
         let status = get_deal_status<Offered, Collateral>(deal_ref);
 
         assert(status != STATUS_HARD_MC_REACHED, ERR_HARD_MC_HAS_OCCURRED);
-
-        // let price = Coins::get_price<Collateral, Offered>();
-        // assert(price > hard_mc, ERR_HARD_MC_HAS_OCCURRED);
 
         let Deal {
             id: _,
@@ -418,8 +472,11 @@ module CDP {
                 days_held_multiplier
             )
         );
+
         // it's in 18th dimension after Math::mul, need to scale down to `offered_decimals`
         let pay_back_amt = Math::scale_to_decimals(pay_back_num, offered_decimals);
+
+        assert(Account::balance<Offered>(account) >= pay_back_amt, ERR_NOT_ENOUGH_MONEY);
 
         // Return money by making a direct trasfer
         Account::pay_from_sender<Offered>(account, lender, pay_back_amt);
@@ -427,15 +484,33 @@ module CDP {
         let collateral = Dfinance::withdraw(&mut offer.collateral, collateral_amt);
 
         Event::emit(account, DealClosedOnBorrowerEvent<Offered, Collateral> {
+            ltv,
             lender,
             pay_back_amt,
-            collateral_amt: collateral_amt,
-            borrower: Signer::address_of(account),
-            ltv,
             interest_rate,
+            collateral_amt,
+            borrower: Signer::address_of(account),
         });
 
         (collateral)
+    }
+
+    public fun get_deal_details<Offered: copyable, Collateral: copyable>(
+        lender: address,
+        deal_id: u64
+    ): (u64, u128, u128, u64, u64, u128, u128) acquires Offer {
+        let off  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
+        let (deal, _) = find_deal<Offered, Collateral>(&off.deals, deal_id);
+
+        (
+            deal.ltv,
+            deal.soft_mc,
+            deal.hard_mc,
+            deal.created_at,
+            deal.interest_rate,
+            deal.offered_amt,
+            deal.collateral_amt,
+        )
     }
 
     /// Find deal with given ID in the list of deals and
@@ -461,8 +536,8 @@ module CDP {
     /// Walk through vector of Proofs to find match
     fun resolve_security<Offered: copyable, Collateral: copyable>(
         proofs: &mut vector<Security::Proof>,
-        security: Security<CDPSecurity<Offered, Collateral>>
-    ): CDPSecurity<Offered, Collateral> {
+        security: Security<CDP<Offered, Collateral>>
+    ): CDP<Offered, Collateral> {
         let i = 0;
         let l = Vector::length(proofs);
 

@@ -4,14 +4,14 @@ script {
     use 0x1::Security::{Self, Proof};
     use 0x1::SecurityStorage;
     use 0x1::Vector;
-    use 0x2::Attic;
+    use 0x1::TestVecResource as Attic;
 
     fun issue_security_with_expiration(account: &signer) {
 
         SecurityStorage::init<u128>(account);
 
         let (sec, proof) = Security::issue<u128>(account, 1000, 100);
-        let proof_vec    = Vector::empty<Proof>();
+        let proof_vec    = Attic::empty<Proof>();
 
         Vector::push_back<Proof>(&mut proof_vec, proof);
 
@@ -31,7 +31,7 @@ script {
     fun take_security_and_check_expiration(account: &signer) {
 
         let sec = SecurityStorage::take<u128>(account, 0);
-        Security::destroy_expired_sec(sec);
+        Security::destroy_expired_security(sec);
     }
 }
 
@@ -41,7 +41,7 @@ script {
 script {
     use 0x1::Security::{Self, Proof};
     use 0x1::Vector;
-    use 0x2::Attic;
+    use 0x1::TestVecResource as Attic;
 
     fun take_proof_and_check_expiration(account: &signer) {
 
@@ -63,7 +63,7 @@ script {
     fun take_security_and_destroy_expired(account: &signer) {
 
         let sec = SecurityStorage::take<u128>(account, 0);
-        let num = Security::destroy_expired_sec(sec);
+        let num = Security::destroy_expired_security(sec);
 
         assert(num == 1000, 42);
     }
@@ -74,7 +74,7 @@ script {
 script {
     use 0x1::Security::{Self, Proof};
     use 0x1::Vector;
-    use 0x2::Attic;
+    use 0x1::TestVecResource as Attic;
 
     fun take_proof_and_destroy_expired(account: &signer) {
 

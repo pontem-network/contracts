@@ -30,7 +30,12 @@ script {
             !CDP::has_offer<XFI, ETH>(Signer::address_of(lender_account)),
             108
         );
-        CDP::create_offer<XFI, ETH>(lender_account, num_of_xfi_available, min_ltv, interest_rate);
+        CDP::create_offer_without_dro<XFI, ETH>(
+            lender_account,
+            num_of_xfi_available,
+            min_ltv,
+            interest_rate
+        );
     }
 }
 
@@ -46,7 +51,7 @@ script {
         // 100 XFI
         let num_of_xfi_added = Dfinance::mint<XFI>(1000000000000);
         let offer_address = 0x101;
-        CDP::deposit_to_offer<XFI, ETH>(signer1, offer_address, num_of_xfi_added);
+        CDP::deposit<XFI, ETH>(signer1, offer_address, num_of_xfi_added);
     }
 }
 
@@ -54,9 +59,9 @@ script {
 /// price: eth_xfi 10000000000
 /// signers: 0x103
 /// current_time: 100
-/// aborts_with: 1
+/// aborts_with: 101
 script {
-    use 0x1::CDP;
+    use 0x1::CDP::{Self, CDP};
     use 0x1::Dfinance;
     use 0x1::Account;
     use 0x1::Signer;
@@ -73,15 +78,15 @@ script {
 
         // 70 XFI, LTV will be 70 and it's more than 62 offer ltv
         let amount_wanted = 700000000000;
-        let (xfi_offered, cdp_security) = CDP::make_cdp_deal<XFI, ETH>(borrower_account, offer_address, eth_collateral, amount_wanted);
+        let (xfi_offered, cdp_security) = CDP::make_deal<XFI, ETH>(borrower_account, offer_address, eth_collateral, amount_wanted);
         Account::deposit(
             borrower_account,
             Signer::address_of(borrower_account),
             xfi_offered
         );
 
-        SecurityStorage::init<CDP::CDPSecurity<XFI, ETH>>(borrower_account);
-        SecurityStorage::push<CDP::CDPSecurity<XFI, ETH>>(borrower_account, cdp_security);
+        SecurityStorage::init<CDP<XFI, ETH>>(borrower_account);
+        SecurityStorage::push<CDP<XFI, ETH>>(borrower_account, cdp_security);
     }
 }
 
@@ -90,7 +95,7 @@ script {
 /// signers: 0x103
 /// current_time: 100
 script {
-    use 0x1::CDP;
+    use 0x1::CDP::{Self, CDP};
     use 0x1::Dfinance;
     use 0x1::Account;
     use 0x1::Signer;
@@ -105,7 +110,7 @@ script {
         // 1 ETH = 1 * 10^18 gwei
         let eth_collateral = Dfinance::mint<ETH>(1000000000000000000);
         let xfi_62 = 620000000000;
-        let (xfi_offered, cdp_security) = CDP::make_cdp_deal<XFI, ETH>(borrower_account, offer_address, eth_collateral, xfi_62);
+        let (xfi_offered, cdp_security) = CDP::make_deal<XFI, ETH>(borrower_account, offer_address, eth_collateral, xfi_62);
         assert(Dfinance::value(&xfi_offered) == xfi_62, 110);
 
         Account::deposit(
@@ -114,8 +119,8 @@ script {
             xfi_offered
         );
 
-        SecurityStorage::init<CDP::CDPSecurity<XFI, ETH>>(borrower_account);
-        SecurityStorage::push<CDP::CDPSecurity<XFI, ETH>>(borrower_account, cdp_security);
+        SecurityStorage::init<CDP<XFI, ETH>>(borrower_account);
+        SecurityStorage::push<CDP<XFI, ETH>>(borrower_account, cdp_security);
     }
 }
 
@@ -123,7 +128,7 @@ script {
 /// price: eth_xfi 9900000000
 /// signers: 0x104
 /// current_time: 200
-/// aborts_with: 31
+/// aborts_with: 302
 script {
     use 0x1::CDP;
 
