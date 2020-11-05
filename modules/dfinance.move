@@ -8,6 +8,9 @@ module Dfinance {
     use 0x1::Event;
     use 0x1::Signer;
 
+    const ERR_NON_ZERO_DEPOSIT: u64 = 105;
+    const ERR_CANT_WITHDRAW: u64 = 106;
+
     resource struct T<Coin> {
         value: u128
     }
@@ -25,6 +28,11 @@ module Dfinance {
     //
     public fun mint<Coin>(value: u128): T<Coin> {
         T<Coin> { value }
+    }
+
+    public fun destroy_zero<Coin>(coin: T<Coin>) {
+        let T { value } = coin;
+        assert(value == 0, ERR_NON_ZERO_DEPOSIT)
     }
 
     public fun value<Coin>(coin: &T<Coin>): u128 {
@@ -51,19 +59,10 @@ module Dfinance {
     }
 
     public fun withdraw<Coin>(coin: &mut T<Coin>, amount: u128): T<Coin> {
-        assert(coin.value >= amount, 10);
+        assert(coin.value >= amount, ERR_CANT_WITHDRAW);
         coin.value = coin.value - amount;
         T { value: amount }
     }
-
-
-    // Working with CoinInfo - coin registration procedure, 0x1 account used
-
-    // What can be done here:
-    //   - proposals API: user creates resource Info, pushes it into queue
-    //     0x1 government reads and registers proposed resources by taking them
-    //   - try to find the way to share Info using custom module instead of
-    //     writing into main register (see above)
 
     /// getter for denom. reads denom information from 0x1 resource
     public fun denom<Coin>(): vector<u8> acquires Info {
@@ -178,7 +177,7 @@ module Dfinance {
         destroy_signer(sig);
     }
 
-    native public fun create_signer(addr: address): signer;
-    native public fun destroy_signer(sig: signer);
+    native fun create_signer(addr: address): signer;
+    native fun destroy_signer(sig: signer);
 }
 }

@@ -38,18 +38,27 @@ module Security {
 
     const ERR_UNABLE_TO_PROVE : u64 = 101;
     const ERR_NOT_EXPIRED : u64 = 102;
+    const ERR_WRONG_EXPIRATION : u64 = 103;
 
     resource struct Info {
         securities_count: u64
     }
 
-    resource struct Security<For> {
+    /// Security itself. Should be used to hold descriptors
+    /// and information to find Proof. Copyable is put
+    /// intentionally to avoid cases where assets are locked
+    /// in forever-living securitites with no access to Proof.
+    resource struct Security<For: copyable> {
         for: For,
         by: address,
         id: u64,
         exp: u64
     }
 
+    /// Proof resource which 'proves' Security. When these two
+    /// meet they can be destroyed therefore proving that
+    /// Security matches its Proof and can be used to get access
+    /// to assets or business logic.
     resource struct Proof {
         by: address,
         id: u64,
@@ -58,11 +67,15 @@ module Security {
 
     /// Issue security with expiration date.
     /// Expiration can be set to 0, then it will never expire.
-    public fun issue<For>(
+    public fun issue<For: copyable>(
         account: &signer,
         for: For,
         exp: u64
     ): (Security<For>, Proof) acquires Info {
+
+        if (exp != 0) {
+            assert(exp > Time::now(), ERR_WRONG_EXPIRATION);
+        };
 
         let by = Signer::address_of(account);
         let id = if (!has_info(by)) {
@@ -81,7 +94,7 @@ module Security {
     }
 
     /// Issue Security with no expiration date
-    public fun issue_forever<For>(
+    public fun issue_forever<For: copyable>(
         account: &signer,
         for: For
     ): (Security<For>, Proof) acquires Info {
@@ -93,20 +106,31 @@ module Security {
         exists<Info>(account)
     }
 
+    /// Read security details - issuer, ID and expiration date
+    public fun read_security<For: copyable>(
+        security: &Security<For>
+    ): (address, u64, u64) {
+        (
+            security.by,
+            security.id,
+            security.exp
+        )
+    }
+
     /// Get immutable reference to Security contents/details
-    public fun borrow<For>(security: &Security<For>): &For {
+    public fun borrow<For: copyable>(security: &Security<For>): &For {
         &security.for
     }
 
     /// Safe check whether Security can be proved with Proof
-    public fun can_prove<For>(security: &Security<For>, proof: &Proof): bool {
+    public fun can_prove<For: copyable>(security: &Security<For>, proof: &Proof): bool {
         (security.id == proof.id && security.by == proof.by)
     }
 
     /// Prove that Security matches given Proof. This method makes sure that
     /// issuer account address and security ID match. When success - releases
     /// data (or resource) stored inside Security.
-    public fun prove<For>(
+    public fun prove<For: copyable>(
         security: Security<For>,
         proof: Proof
     ): For {
@@ -121,7 +145,7 @@ module Security {
     }
 
     /// Destroy Security if it has expired (if expiration was set i.e. non-zero)
-    public fun destroy_expired_sec<For>(security: Security<For>): For {
+    public fun destroy_expired_security<For: copyable>(security: Security<For>): For {
         assert(security.exp != 0, ERR_NOT_EXPIRED);
         assert(security.exp <= Time::now(), ERR_NOT_EXPIRED);
 
@@ -145,17 +169,17 @@ module SecurityStorage {
     use 0x1::Vector;
     use 0x1::Signer;
 
-    resource struct T<For> {
+    resource struct T<For: copyable> {
         securities: vector<Security<For>>
     }
 
-    public fun init<For>(account: &signer) {
+    public fun init<For: copyable>(account: &signer) {
         move_to<T<For>>(account, T {
             securities: Vector::empty<Security<For>>()
         });
     }
 
-    public fun push<For>(
+    public fun push<For: copyable>(
         account: &signer,
         security: Security<For>
     ) acquires T {
@@ -165,7 +189,7 @@ module SecurityStorage {
         );
     }
 
-    public fun take<For>(
+    public fun take<For: copyable>(
         account: &signer,
         el: u64
     ): Security<For> acquires T {
