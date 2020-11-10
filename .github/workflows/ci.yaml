@@ -29,5 +29,11 @@ jobs:
       - name: ls
         run: ls -al
 
+      - name: chown
+        run: sudo chown runner ./test-runner-linux
+
+      - name: chmod
+        run: chmod +x ./test-runner-linux
+
       - name: Test
         run: ./test-runner-linux --sender 0x1 --modules ./stdlib/ --modules ./modules/ tests
