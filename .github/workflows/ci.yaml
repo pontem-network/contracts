@@ -26,5 +26,8 @@ jobs:
           version: "tags/0.9.10"
           file: test-runner-linux
 
+      - name: ls
+        run: ls -al
+
       - name: Test
-        run: chmod +x ./test-runner-linux && ./test-runner-linux --sender 0x1 --modules ./stdlib/ --modules ./modules/ tests
+        run: ./test-runner-linux --sender 0x1 --modules ./stdlib/ --modules ./modules/ tests
