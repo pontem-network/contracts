@@ -27,4 +27,4 @@ jobs:
           file: test-runner-linux
 
       - name: Test
-        run: ./test-runner-linux --sender 0x1 --modules ./stdlib/ --modules ./modules/ tests
+        run: chmod +x ./test-runner-linux && ./test-runner-linux --sender 0x1 --modules ./stdlib/ --modules ./modules/ tests
