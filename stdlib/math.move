@@ -31,9 +31,9 @@ module Math {
     public fun scale_to_decimals(num: Num, scale_dec: u8): u128 {
         let (value, dec) = num_unpack(num);
         if (dec < scale_dec) {
-            return value * pow_10(scale_dec - dec)
+            (value * pow_10(scale_dec - dec))
         } else {
-            return value / pow_10(dec - scale_dec)
+            (value / pow_10(dec - scale_dec))
         }
     }
 
