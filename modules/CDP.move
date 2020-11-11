@@ -191,6 +191,8 @@ module CDP {
             deposit_amt,
             min_ltv,
             interest_rate,
+            allow_dro,
+            dro_buy_gate
         });
     }
 
@@ -202,6 +204,10 @@ module CDP {
         let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
 
         offer.is_active = false;
+
+        Event::emit(account, OfferDeactivatedEvent<Offered, Collateral> {
+            lender
+        });
     }
 
     /// Activate Offer
@@ -212,6 +218,10 @@ module CDP {
         let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
 
         offer.is_active = true;
+
+        Event::emit(account, OfferActivatedEvent<Offered, Collateral> {
+            lender
+        });
     }
 
     /// Deposit additional assets into the Offer.
@@ -243,6 +253,11 @@ module CDP {
 
         assert(withdraw_amt <= Dfinance::value(&offer.deposit), ERR_CANT_WITHDRAW);
 
+        Event::emit(account, OfferWithdrawalEvent<Offered, Collateral> {
+            withdraw_amt,
+            lender
+        });
+
         Dfinance::withdraw(&mut offer.deposit, withdraw_amt)
     }
 
@@ -253,6 +268,11 @@ module CDP {
         let lender = Signer::address_of(account);
         let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
         let amt    = Dfinance::value(&offer.deposit);
+
+        Event::emit(account, OfferWithdrawalEvent<Offered, Collateral> {
+            withdraw_amt,
+            lender
+        });
 
         Dfinance::withdraw(&mut offer.deposit, amt)
     }
@@ -405,7 +425,7 @@ module CDP {
         // Give Collateral to the lender
         Account::deposit<Collateral>(account, lender, collateral);
 
-        Event::emit(account, DealClosedOnMarginCallEvent<Offered, Collateral> {
+        Event::emit(account, DealClosedByMarginCallEvent<Offered, Collateral> {
             lender,
             deal_id,
             collateral_amt: collateral_amt,
@@ -483,7 +503,7 @@ module CDP {
 
         let collateral = Dfinance::withdraw(&mut offer.collateral, collateral_amt);
 
-        Event::emit(account, DealClosedOnBorrowerEvent<Offered, Collateral> {
+        Event::emit(account, DealClosedPayBackEvent<Offered, Collateral> {
             ltv,
             lender,
             pay_back_amt,
@@ -572,6 +592,8 @@ module CDP {
         lender: address,
         min_ltv: u64,
         interest_rate: u64,
+        allow_dro: bool,
+        dro_buy_gate: u64
     }
 
     struct OfferDepositedEvent<Offered: copyable, Collateral: copyable> {
@@ -579,8 +601,8 @@ module CDP {
         lender: address,
     }
 
-    struct OfferDepositBorrowedEvent<Offered: copyable, Collateral: copyable> {
-        deposit_amt: u128,
+    struct OfferWithdrawalEvent<Offered: copyable, Collateral: copyable> {
+        withdraw_amt: u128,
         lender: address,
     }
 
@@ -598,7 +620,15 @@ module CDP {
         interest_rate: u64,
     }
 
-    struct DealClosedOnBorrowerEvent<Offered: copyable, Collateral: copyable> {
+    struct OfferDeactivatedEvent<Offered: copyable, Collateral: copyable> {
+        lender: address
+    }
+
+    struct OfferActivatedEvent<Offered: copyable, Collateral: copyable> {
+        lender: address
+    }
+
+    struct DealClosedPayBackEvent<Offered: copyable, Collateral: copyable> {
         lender: address,
         borrower: address,
         pay_back_amt: u128,
@@ -608,7 +638,7 @@ module CDP {
         interest_rate: u64,
     }
 
-    struct DealClosedOnMarginCallEvent<Offered: copyable, Collateral: copyable> {
+    struct DealClosedByMarginCallEvent<Offered: copyable, Collateral: copyable> {
         lender: address,
         deal_id: u64,
         collateral_amt: u128,
