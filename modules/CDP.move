@@ -506,6 +506,7 @@ module CDP {
         Event::emit(account, DealClosedPayBackEvent<Offered, Collateral> {
             ltv,
             lender,
+            deal_id,
             pay_back_amt,
             interest_rate,
             collateral_amt,
@@ -629,6 +630,7 @@ module CDP {
     }
 
     struct DealClosedPayBackEvent<Offered: copyable, Collateral: copyable> {
+        deal_id: u64,
         lender: address,
         borrower: address,
         pay_back_amt: u128,
