@@ -34,6 +34,7 @@ module CDP {
     const ERR_INCORRECT_LTV: u64 = 101;
     const ERR_NO_ORACLE_PRICE: u64 = 102;
     const ERR_ZERO_DRO_GATE: u64 = 103;
+    const ERR_OFFER_DOES_NOT_EXIST: u64 = 104;
 
     // deal close params
     const ERR_HARD_MC_HAS_OCCURRED: u64 = 301;
@@ -201,6 +202,10 @@ module CDP {
         account: &signer
     ) acquires Offer {
         let lender = Signer::address_of(account);
+        assert(
+            exists<Offer<Offered, Collateral>>(lender),
+            ERR_OFFER_DOES_NOT_EXIST
+        );
         let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
 
         offer.is_active = false;
@@ -215,6 +220,10 @@ module CDP {
         account: &signer
     ) acquires Offer {
         let lender = Signer::address_of(account);
+        assert(
+            exists<Offer<Offered, Collateral>>(lender),
+            ERR_OFFER_DOES_NOT_EXIST
+        );
         let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
 
         offer.is_active = true;
@@ -232,6 +241,10 @@ module CDP {
         lender: address,
         to_deposit: Dfinance::T<Offered>
     ) acquires Offer {
+        assert(
+            exists<Offer<Offered, Collateral>>(lender),
+            ERR_OFFER_DOES_NOT_EXIST
+        );
         let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
         let deposit_amt = Dfinance::value(&to_deposit);
 
@@ -249,6 +262,10 @@ module CDP {
         withdraw_amt: u128
     ): Dfinance::T<Offered> acquires Offer {
         let lender = Signer::address_of(account);
+        assert(
+            exists<Offer<Offered, Collateral>>(lender),
+            ERR_OFFER_DOES_NOT_EXIST
+        );
         let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
 
         assert(withdraw_amt <= Dfinance::value(&offer.deposit), ERR_CANT_WITHDRAW);
@@ -266,7 +283,12 @@ module CDP {
         account: &signer,
     ): Dfinance::T<Offered> acquires Offer {
         let lender = Signer::address_of(account);
+        assert(
+            exists<Offer<Offered, Collateral>>(lender),
+            ERR_OFFER_DOES_NOT_EXIST
+        );
         let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
+
         let withdraw_amt = Dfinance::value(&offer.deposit);
 
         Event::emit(account, OfferWithdrawalEvent<Offered, Collateral> {
@@ -286,6 +308,10 @@ module CDP {
         collateral: Dfinance::T<Collateral>,
         amount_wanted: u128,
     ): (Dfinance::T<Offered>, Security<CDP<Offered, Collateral>>) acquires Offer {
+        assert(
+            exists<Offer<Offered, Collateral>>(lender),
+            ERR_OFFER_DOES_NOT_EXIST
+        );
 
         let price = num(Coins::get_price<Collateral, Offered>(), EXCHANGE_RATE_DECIMALS);
 
@@ -374,6 +400,10 @@ module CDP {
         lender: address,
         deal_id: u64
     ): u8 acquires Offer {
+        assert(
+            exists<Offer<Offered, Collateral>>(lender),
+            ERR_OFFER_DOES_NOT_EXIST
+        );
         let offer     = borrow_global<Offer<Offered, Collateral>>(lender);
         let (deal, _) = find_deal<Offered, Collateral>(&offer.deals, deal_id);
 
@@ -402,6 +432,10 @@ module CDP {
         lender: address,
         deal_id: u64
     ) acquires Offer {
+        assert(
+            exists<Offer<Offered, Collateral>>(lender),
+            ERR_OFFER_DOES_NOT_EXIST
+        );
         let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
         let (deal_ref, pos) = find_deal(&offer.deals, deal_id);
         let status = get_deal_status(deal_ref);
@@ -446,7 +480,10 @@ module CDP {
         security: Security<CDP<Offered, Collateral>>,
     ): Dfinance::T<Collateral> acquires Offer {
         let lender = Security::borrow(&security).lender;
-
+        assert(
+            exists<Offer<Offered, Collateral>>(lender),
+            ERR_OFFER_DOES_NOT_EXIST
+        );
         let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
         let CDP { lender: _, deal_id } = resolve_security(&mut offer.proofs, security);
         let (deal_ref, pos) = find_deal(&offer.deals, deal_id);
@@ -520,6 +557,10 @@ module CDP {
         lender: address,
         deal_id: u64
     ): (u64, u128, u128, u64, u64, u128, u128) acquires Offer {
+        assert(
+            exists<Offer<Offered, Collateral>>(lender),
+            ERR_OFFER_DOES_NOT_EXIST
+        );
         let off  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
         let (deal, _) = find_deal<Offered, Collateral>(&off.deals, deal_id);
 
