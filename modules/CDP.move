@@ -40,6 +40,7 @@ module CDP {
     const ERR_HARD_MC_HAS_NOT_OCCURRED: u64 = 302;
     const ERR_DEAL_DOES_NOT_EXIST: u64 = 303;
     const ERR_NOT_ENOUGH_MONEY: u64 = 304;
+    const ERR_DEAL_NOT_EXPIRED: u64 = 305;
 
     const ERR_ZERO_AMOUNT: u64 = 201;
 
@@ -51,6 +52,10 @@ module CDP {
     const STATUS_DEAL_OKAY: u8 = 1;
     const STATUS_SOFT_MC_REACHED: u8 = 2;
     const STATUS_HARD_MC_REACHED: u8 = 3;
+    const STATUS_EXPIRED: u8 = 4;
+
+    const REASON_MC: u8 = 1;
+    const REASON_TIME: u8 = 2;
 
     resource struct Offer<Offered: copyable, Collateral: copyable> {
         deposit: Dfinance::T<Offered>,
@@ -59,6 +64,7 @@ module CDP {
         // ID COUNTER
         deals_made: u64,
         deals: vector<Deal<Offered, Collateral>>,
+        deal_duration: u64,
         // whether Offer is available for deals
         is_active: bool,
 
@@ -79,6 +85,8 @@ module CDP {
         ltv: u64,
         soft_mc: u128,
         hard_mc: u128,
+        allow_dro: bool,
+        ends_at: u64,
         created_at: u64,
         interest_rate: u64,
         offered_amt: u128,
@@ -145,12 +153,14 @@ module CDP {
         to_deposit: Dfinance::T<Offered>,
         min_ltv: u64,
         interest_rate: u64,
+        deal_duration: u64
     ) {
         create_offer<Offered, Collateral>(
             account,
             to_deposit,
             min_ltv,
             interest_rate,
+            deal_duration,
             false,
             0
         )
@@ -164,8 +174,9 @@ module CDP {
         to_deposit: Dfinance::T<Offered>,
         min_ltv: u64,
         interest_rate: u64,
+        deal_duration: u64,
         allow_dro: bool,
-        dro_buy_gate: u64
+        dro_buy_gate: u64,
     ) {
         assert(min_ltv < MAX_LTV, ERR_INCORRECT_LTV);
         assert(Coins::has_price<Collateral, Offered>(), ERR_NO_ORACLE_PRICE);
@@ -183,6 +194,7 @@ module CDP {
             min_ltv,
             allow_dro,
             interest_rate,
+            deal_duration,
             dro_buy_gate
         });
 
@@ -192,6 +204,7 @@ module CDP {
             min_ltv,
             interest_rate,
             allow_dro,
+            deal_duration,
             dro_buy_gate
         });
     }
@@ -334,11 +347,15 @@ module CDP {
                 deal_id,
             });
 
+
         let created_at = Time::now();
+        let ends_at = created_at + offer.deal_duration;
         let deal = Deal<Offered, Collateral> {
             soft_mc,
             hard_mc,
+            ends_at,
             created_at,
+            allow_dro: offer.allow_dro,
             offered_amt: amount_wanted,
             collateral_amt,
             id: deal_id,
@@ -359,6 +376,7 @@ module CDP {
             soft_mc,
             hard_mc,
             created_at,
+            ends_at,
             collateral_amt,
             offered_amt: amount_wanted,
             borrower: Signer::address_of(account),
@@ -385,8 +403,11 @@ module CDP {
         deal: &Deal<Offered, Collateral>
     ): u8 {
         let price = Coins::get_price<Collateral, Offered>();
+        let now   = Time::now();
 
-        if (price <= deal.hard_mc) {
+        if (now > deal.ends_at) {
+            STATUS_EXPIRED
+        } else if (price <= deal.hard_mc) {
             STATUS_HARD_MC_REACHED
         } else if (price <= deal.soft_mc) {
             STATUS_SOFT_MC_REACHED
@@ -397,7 +418,7 @@ module CDP {
 
     /// Close the deal by margin call. Can be called by anyone, deal_id is
     /// currently required for closing.
-    public fun close_by_margin_call<Offered: copyable, Collateral: copyable>(
+    public fun close_by_status<Offered: copyable, Collateral: copyable>(
         account: &signer,
         lender: address,
         deal_id: u64
@@ -406,13 +427,18 @@ module CDP {
         let (deal_ref, pos) = find_deal(&offer.deals, deal_id);
         let status = get_deal_status(deal_ref);
 
-        assert(status == STATUS_HARD_MC_REACHED, ERR_HARD_MC_HAS_NOT_OCCURRED);
+        assert(
+            status == STATUS_HARD_MC_REACHED ||
+            status == STATUS_EXPIRED
+        , ERR_HARD_MC_HAS_NOT_OCCURRED);
 
         let Deal {
             id: _,
             soft_mc,
             hard_mc,
+            allow_dro: _,
             created_at: _,
+            ends_at: _,
             ltv,
             interest_rate,
             offered_amt,
@@ -425,7 +451,13 @@ module CDP {
         // Give Collateral to the lender
         Account::deposit<Collateral>(account, lender, collateral);
 
-        Event::emit(account, DealClosedByMarginCallEvent<Offered, Collateral> {
+        let reason = if (status == STATUS_EXPIRED) {
+            REASON_TIME
+        } else {
+            REASON_MC
+        };
+
+        Event::emit(account, DealClosedByStatusEvent<Offered, Collateral> {
             lender,
             deal_id,
             collateral_amt: collateral_amt,
@@ -433,6 +465,7 @@ module CDP {
             closed_at: Time::now(),
             soft_mc,
             hard_mc,
+            reason,
             ltv,
             interest_rate,
         });
@@ -456,8 +489,10 @@ module CDP {
 
         let Deal {
             id: _,
+            allow_dro: _,
             soft_mc: _,
             hard_mc: _,
+            ends_at: _,
             created_at,
             ltv,
             interest_rate,
@@ -593,6 +628,7 @@ module CDP {
         lender: address,
         min_ltv: u64,
         interest_rate: u64,
+        deal_duration: u64,
         allow_dro: bool,
         dro_buy_gate: u64
     }
@@ -613,6 +649,7 @@ module CDP {
         borrower: address,
         offered_amt: u128,
         collateral_amt: u128,
+        ends_at: u64,
         created_at: u64,
         soft_mc: u128,
         hard_mc: u128,
@@ -640,7 +677,7 @@ module CDP {
         interest_rate: u64,
     }
 
-    struct DealClosedByMarginCallEvent<Offered: copyable, Collateral: copyable> {
+    struct DealClosedByStatusEvent<Offered: copyable, Collateral: copyable> {
         lender: address,
         deal_id: u64,
         collateral_amt: u128,
@@ -648,7 +685,7 @@ module CDP {
         closed_at: u64,
         soft_mc: u128,
         hard_mc: u128,
-
+        reason: u8,
         ltv: u64,
         interest_rate: u64,
     }

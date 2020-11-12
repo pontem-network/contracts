@@ -34,7 +34,8 @@ script {
             lender_account,
             num_of_xfi_available,
             min_ltv,
-            interest_rate
+            interest_rate,
+            10000000000  // duration in seconds
         );
     }
 }
