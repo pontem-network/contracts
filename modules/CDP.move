@@ -263,7 +263,7 @@ module CDP {
 
     /// Withdraw whole deposit from Offer, only owner can do it
     public fun withdraw_all<Offered: copyable, Collateral: copyable>(
-        account: &signer,c
+        account: &signer,
     ): Dfinance::T<Offered> acquires Offer {
         let lender = Signer::address_of(account);
         let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
