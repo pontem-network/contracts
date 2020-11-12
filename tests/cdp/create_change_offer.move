@@ -18,6 +18,43 @@ script {
     }
 }
 
+/// current_time: 0
+/// signers: 0xDF1
+/// price: eth_xfi 10000000000
+/// aborts_with: 104
+script {
+    use 0x1::CDP;
+    use 0x1::Dfinance;
+    use 0x1::Coins::ETH;
+    use 0x1::XFI::T as XFI;
+
+    fun cannot_deposit_if_offer_does_not_exist(account: &signer) {
+        // 100 XFI
+        let dep_amt = 100000000000000000000;
+        let deposit = Dfinance::mint<XFI>(dep_amt);
+
+        CDP::deposit<XFI, ETH>(account, 0x103, deposit);
+    }
+}
+
+/// current_time: 0
+/// signers: 0xDF1
+/// price: eth_xfi 10000000000
+/// aborts_with: 104
+script {
+    use 0x1::CDP;
+    use 0x1::Account;
+    use 0x1::Coins::ETH;
+    use 0x1::XFI::T as XFI;
+
+    fun cannot_withdraw_if_offer_does_not_exist(account: &signer) {
+        // 100 XFI
+        let dep_amt = 100000000000000000000;
+        let withdrawn = CDP::withdraw<XFI, ETH>(account, dep_amt);
+        Account::deposit_to_sender(account, withdrawn);
+    }
+}
+
 /// signers: 0xDF1
 /// current_time: 0
 /// price: eth_xfi 10000000000

@@ -40,22 +40,6 @@ script {
     }
 }
 
-/// signers: 0x102
-script {
-    use 0x1::CDP;
-    use 0x1::Dfinance;
-
-    use 0x1::Coins::ETH;
-    use 0x1::XFI::T as XFI;
-
-    fun add_more_xfi_to_bank(signer1: &signer) {
-        // 100 XFI
-        let num_of_xfi_added = Dfinance::mint<XFI>(1000000000000);
-        let offer_address = 0x101;
-        CDP::deposit<XFI, ETH>(signer1, offer_address, num_of_xfi_added);
-    }
-}
-
 // 100 XFI / ETH
 /// price: eth_xfi 10000000000
 /// signers: 0x103
