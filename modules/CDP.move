@@ -38,7 +38,7 @@ module CDP {
 
     // deal close params
     const ERR_HARD_MC_HAS_OCCURRED: u64 = 301;
-    const ERR_HARD_MC_HAS_NOT_OCCURRED: u64 = 302;
+    const ERR_HARD_MC_HAS_NOT_OCCURRED_OR_NOT_EXPIRED: u64 = 302;
     const ERR_DEAL_DOES_NOT_EXIST: u64 = 303;
     const ERR_NOT_ENOUGH_MONEY: u64 = 304;
     const ERR_DEAL_NOT_EXPIRED: u64 = 305;
@@ -462,9 +462,10 @@ module CDP {
         let status = get_deal_status(deal_ref);
 
         assert(
-            status == STATUS_HARD_MC_REACHED ||
-            status == STATUS_EXPIRED
-        , ERR_HARD_MC_HAS_NOT_OCCURRED);
+            status == STATUS_HARD_MC_REACHED
+                    || status == STATUS_EXPIRED,
+            ERR_HARD_MC_HAS_NOT_OCCURRED_OR_NOT_EXPIRED
+        );
 
         let Deal {
             id: _,
@@ -573,7 +574,7 @@ module CDP {
         // Return money by making a direct trasfer
         let offered_paid = Account::withdraw_from_sender(account, pay_back_amt);
         Dfinance::deposit<Offered>(&mut offer.deposit, offered_paid);
-        
+
         let collateral = Dfinance::withdraw(&mut offer.collateral, collateral_amt);
 
         Event::emit(account, DealClosedPayBackEvent<Offered, Collateral> {
