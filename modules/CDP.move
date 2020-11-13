@@ -462,8 +462,7 @@ module CDP {
         let status = get_deal_status(deal_ref);
 
         assert(
-            status == STATUS_HARD_MC_REACHED
-                    || status == STATUS_EXPIRED,
+            status == STATUS_HARD_MC_REACHED || status == STATUS_EXPIRED,
             ERR_HARD_MC_HAS_NOT_OCCURRED_OR_NOT_EXPIRED
         );
 
