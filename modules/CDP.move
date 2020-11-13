@@ -571,8 +571,9 @@ module CDP {
         assert(Account::balance<Offered>(account) >= pay_back_amt, ERR_NOT_ENOUGH_MONEY);
 
         // Return money by making a direct trasfer
-        Account::pay_from_sender<Offered>(account, lender, pay_back_amt);
-
+        let offered_paid = Account::withdraw_from_sender(account, pay_back_amt);
+        Dfinance::deposit<Offered>(&mut offer.deposit, offered_paid);
+        
         let collateral = Dfinance::withdraw(&mut offer.collateral, collateral_amt);
 
         Event::emit(account, DealClosedPayBackEvent<Offered, Collateral> {
