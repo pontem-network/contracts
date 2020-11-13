@@ -52,6 +52,7 @@ script {
             deposit,
             min_ltv,
             int_rate,
+            100000000, // duration
             false, // allow dro
             buy_gate
         );

@@ -34,7 +34,8 @@ script {
             lender_account,
             num_of_xfi_available,
             min_ltv,
-            interest_rate
+            interest_rate,
+            10000000000 // seconds duration
         );
     }
 }
@@ -124,7 +125,7 @@ script {
     ) {
         let offer_address = 0x101;
         let deal_id = 0;
-        CDP::close_by_margin_call<XFI, ETH>(margin_call_check_signer, offer_address, deal_id);
+        CDP::close_by_status<XFI, ETH>(margin_call_check_signer, offer_address, deal_id);
     }
 }
 
@@ -146,7 +147,7 @@ script {
     ) {
         let offer_address = 0x101;
         let deal_id = 0;
-        CDP::close_by_margin_call<XFI, ETH>(margin_call_check_signer, offer_address, deal_id);
+        CDP::close_by_status<XFI, ETH>(margin_call_check_signer, offer_address, deal_id);
 
         let eth_1 = 1000000000000000000;
         assert(Account::balance<ETH>(offer_owner_signer) == eth_1, 101);

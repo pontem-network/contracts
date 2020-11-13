@@ -34,8 +34,9 @@ script {
             lender_account,
             num_of_xfi_available,
             min_ltv,
-            interest_rate
-        );
+            interest_rate,
+            10000000000  // duration in seconds
+);
     }
 }
 
@@ -115,6 +116,9 @@ script {
         let collateral = CDP::pay_back<XFI, ETH>(borrower_account, cdp_security);
         let eth_1 = 1000000000000000000;
         assert(Dfinance::value(&collateral) == eth_1, 101);
+
+        let (offer_deposit, _, _, _, _, _) = CDP::get_offer_details<XFI, ETH>(0x101);
+        assert(offer_deposit == 2000169863013, 1002);
 
         Account::deposit_to_sender(borrower_account, collateral)
     }
