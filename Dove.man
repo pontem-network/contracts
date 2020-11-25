@@ -1,166 +1,5 @@
 [[modules]]
 dep_name = "stdlib"
-path = "stdlib/offer.move"
-source_type = "Local"
-
-[[modules.dependencies]]
-address = "0000000000000000000000000000000000000001"
-name = "Signer"
-
-[modules.name]
-address = "0000000000000000000000000000000000000001"
-name = "Offer"
-
-[[modules]]
-dep_name = "stdlib"
-path = "stdlib/dfinance.move"
-source_type = "Local"
-
-[[modules.dependencies]]
-address = "0000000000000000000000000000000000000001"
-name = "Signer"
-
-[[modules.dependencies]]
-address = "0000000000000000000000000000000000000001"
-name = "Event"
-
-[modules.name]
-address = "0000000000000000000000000000000000000001"
-name = "Dfinance"
-
-[[modules]]
-dep_name = "bak"
-path = "bak/option.move"
-source_type = "Local"
-
-[[modules.dependencies]]
-address = "0000000000000000000000000000000000000001"
-name = "Errors"
-
-[[modules.dependencies]]
-address = "0000000000000000000000000000000000000001"
-name = "Vector"
-
-[modules.name]
-address = "0000000000000000000000000000000000000001"
-name = "Option"
-
-[[modules]]
-dep_name = "stdlib"
-dependencies = []
-path = "stdlib/block.move"
-source_type = "Local"
-
-[modules.name]
-address = "0000000000000000000000000000000000000001"
-name = "Block"
-
-[[modules]]
-dep_name = "stdlib"
-dependencies = []
-path = "stdlib/fixedpoint32.move"
-source_type = "Local"
-
-[modules.name]
-address = "0000000000000000000000000000000000000001"
-name = "FixedPoint32"
-
-[[modules]]
-dep_name = "stdlib"
-dependencies = []
-path = "stdlib/time.move"
-source_type = "Local"
-
-[modules.name]
-address = "0000000000000000000000000000000000000001"
-name = "Time"
-
-[[modules]]
-dep_name = "stdlib"
-dependencies = []
-path = "stdlib/u256.move"
-source_type = "Local"
-
-[modules.name]
-address = "0000000000000000000000000000000000000001"
-name = "U256"
-
-[[modules]]
-dep_name = "stdlib"
-path = "stdlib/compare.move"
-source_type = "Local"
-
-[[modules.dependencies]]
-address = "0000000000000000000000000000000000000001"
-name = "Vector"
-
-[modules.name]
-address = "0000000000000000000000000000000000000001"
-name = "Compare"
-
-[[modules]]
-dep_name = "stdlib"
-dependencies = []
-path = "stdlib/xfi.move"
-source_type = "Local"
-
-[modules.name]
-address = "0000000000000000000000000000000000000001"
-name = "XFI"
-
-[[modules]]
-dep_name = "stdlib"
-dependencies = []
-path = "stdlib/lcs.move"
-source_type = "Local"
-
-[modules.name]
-address = "0000000000000000000000000000000000000001"
-name = "LCS"
-
-[[modules]]
-dep_name = "stdlib"
-dependencies = []
-path = "stdlib/signature.move"
-source_type = "Local"
-
-[modules.name]
-address = "0000000000000000000000000000000000000001"
-name = "Signature"
-
-[[modules]]
-dep_name = "stdlib"
-path = "stdlib/account.move"
-source_type = "Local"
-
-[[modules.dependencies]]
-address = "0000000000000000000000000000000000000001"
-name = "Signer"
-
-[[modules.dependencies]]
-address = "0000000000000000000000000000000000000001"
-name = "Dfinance"
-
-[[modules.dependencies]]
-address = "0000000000000000000000000000000000000001"
-name = "Event"
-
-[modules.name]
-address = "0000000000000000000000000000000000000001"
-name = "Account"
-
-[[modules]]
-dep_name = "stdlib"
-dependencies = []
-path = "stdlib/event.move"
-source_type = "Local"
-
-[modules.name]
-address = "0000000000000000000000000000000000000001"
-name = "Event"
-
-[[modules]]
-dep_name = "stdlib"
 path = "stdlib/security.move"
 source_type = "Local"
 
@@ -183,12 +22,32 @@ name = "SecurityStorage"
 [[modules]]
 dep_name = "stdlib"
 dependencies = []
-path = "stdlib/coins.move"
+path = "stdlib/event.move"
 source_type = "Local"
 
 [modules.name]
 address = "0000000000000000000000000000000000000001"
-name = "Coins"
+name = "Event"
+
+[[modules]]
+dep_name = "stdlib"
+dependencies = []
+path = "stdlib/lcs.move"
+source_type = "Local"
+
+[modules.name]
+address = "0000000000000000000000000000000000000001"
+name = "LCS"
+
+[[modules]]
+dep_name = "stdlib"
+dependencies = []
+path = "stdlib/time.move"
+source_type = "Local"
+
+[modules.name]
+address = "0000000000000000000000000000000000000001"
+name = "Time"
 
 [[modules]]
 dep_name = "stdlib"
@@ -206,6 +65,62 @@ name = "Math"
 [[modules]]
 dep_name = "stdlib"
 dependencies = []
+path = "stdlib/signature.move"
+source_type = "Local"
+
+[modules.name]
+address = "0000000000000000000000000000000000000001"
+name = "Signature"
+
+[[modules]]
+dep_name = "bak"
+path = "bak/Auction.move"
+source_type = "Local"
+
+[[modules.dependencies]]
+address = "0000000000000000000000000000000000000001"
+name = "Signer"
+
+[[modules.dependencies]]
+address = "0000000000000000000000000000000000000001"
+name = "Account"
+
+[[modules.dependencies]]
+address = "0000000000000000000000000000000000000001"
+name = "Dfinance"
+
+[[modules.dependencies]]
+address = "0000000000000000000000000000000000000001"
+name = "Event"
+
+[modules.name]
+address = "0000000000000000000000000000000000000001"
+name = "Auction"
+
+[[modules]]
+dep_name = "stdlib"
+path = "stdlib/account.move"
+source_type = "Local"
+
+[[modules.dependencies]]
+address = "0000000000000000000000000000000000000001"
+name = "Event"
+
+[[modules.dependencies]]
+address = "0000000000000000000000000000000000000001"
+name = "Dfinance"
+
+[[modules.dependencies]]
+address = "0000000000000000000000000000000000000001"
+name = "Signer"
+
+[modules.name]
+address = "0000000000000000000000000000000000000001"
+name = "Account"
+
+[[modules]]
+dep_name = "stdlib"
+dependencies = []
 path = "stdlib/vector.move"
 source_type = "Local"
 
@@ -216,37 +131,35 @@ name = "Vector"
 [[modules]]
 dep_name = "stdlib"
 dependencies = []
-path = "stdlib/debug.move"
+path = "stdlib/fixedpoint32.move"
 source_type = "Local"
 
 [modules.name]
 address = "0000000000000000000000000000000000000001"
-name = "Debug"
+name = "FixedPoint32"
 
 [[modules]]
-dep_name = "bak"
-path = "bak/Auction.move"
+dep_name = "stdlib"
+dependencies = []
+path = "stdlib/xfi.move"
+source_type = "Local"
+
+[modules.name]
+address = "0000000000000000000000000000000000000001"
+name = "XFI"
+
+[[modules]]
+dep_name = "stdlib"
+path = "stdlib/compare.move"
 source_type = "Local"
 
 [[modules.dependencies]]
 address = "0000000000000000000000000000000000000001"
-name = "Account"
-
-[[modules.dependencies]]
-address = "0000000000000000000000000000000000000001"
-name = "Signer"
-
-[[modules.dependencies]]
-address = "0000000000000000000000000000000000000001"
-name = "Event"
-
-[[modules.dependencies]]
-address = "0000000000000000000000000000000000000001"
-name = "Dfinance"
+name = "Vector"
 
 [modules.name]
 address = "0000000000000000000000000000000000000001"
-name = "Auction"
+name = "Compare"
 
 [[modules]]
 dep_name = "stdlib"
@@ -260,17 +173,104 @@ name = "Signer"
 
 [[modules]]
 dep_name = "stdlib"
-path = "stdlib/security.move"
+path = "stdlib/offer.move"
 source_type = "Local"
 
 [[modules.dependencies]]
 address = "0000000000000000000000000000000000000001"
 name = "Signer"
 
+[modules.name]
+address = "0000000000000000000000000000000000000001"
+name = "Offer"
+
+[[modules]]
+dep_name = "stdlib"
+path = "stdlib/dfinance.move"
+source_type = "Local"
+
+[[modules.dependencies]]
+address = "0000000000000000000000000000000000000001"
+name = "Event"
+
+[[modules.dependencies]]
+address = "0000000000000000000000000000000000000001"
+name = "Signer"
+
+[modules.name]
+address = "0000000000000000000000000000000000000001"
+name = "Dfinance"
+
+[[modules]]
+dep_name = "stdlib"
+path = "stdlib/security.move"
+source_type = "Local"
+
 [[modules.dependencies]]
 address = "0000000000000000000000000000000000000001"
 name = "Time"
 
+[[modules.dependencies]]
+address = "0000000000000000000000000000000000000001"
+name = "Signer"
+
 [modules.name]
 address = "0000000000000000000000000000000000000001"
 name = "Security"
+
+[[modules]]
+dep_name = "stdlib"
+dependencies = []
+path = "stdlib/block.move"
+source_type = "Local"
+
+[modules.name]
+address = "0000000000000000000000000000000000000001"
+name = "Block"
+
+[[modules]]
+dep_name = "stdlib"
+dependencies = []
+path = "stdlib/coins.move"
+source_type = "Local"
+
+[modules.name]
+address = "0000000000000000000000000000000000000001"
+name = "Coins"
+
+[[modules]]
+dep_name = "stdlib"
+dependencies = []
+path = "stdlib/u256.move"
+source_type = "Local"
+
+[modules.name]
+address = "0000000000000000000000000000000000000001"
+name = "U256"
+
+[[modules]]
+dep_name = "stdlib"
+dependencies = []
+path = "stdlib/debug.move"
+source_type = "Local"
+
+[modules.name]
+address = "0000000000000000000000000000000000000001"
+name = "Debug"
+
+[[modules]]
+dep_name = "bak"
+path = "bak/option.move"
+source_type = "Local"
+
+[[modules.dependencies]]
+address = "0000000000000000000000000000000000000001"
+name = "Vector"
+
+[[modules.dependencies]]
+address = "0000000000000000000000000000000000000001"
+name = "Errors"
+
+[modules.name]
+address = "0000000000000000000000000000000000000001"
+name = "Option"
