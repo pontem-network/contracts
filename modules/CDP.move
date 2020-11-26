@@ -413,6 +413,22 @@ module CDP {
         (offered, security)
     }
 
+
+    public fun create_dro<Offered: copyable, Collateral: copyable>(
+        account: &signer,
+        security: &Security<CDP<Offered, Collateral>>
+    ) acquires Offer {
+
+        let CDP {
+            deal_id,
+            lender
+        } = *Security::borrow(security);
+
+        let _ = borrow_global_mut<Offer<Offered, Collateral>>(lender);
+        let _ = deal_id;
+        let _ = account;
+    }
+
     ///
     public fun get_deal_status_by_id<Offered: copyable, Collateral: copyable>(
         lender: address,
