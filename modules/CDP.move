@@ -43,6 +43,11 @@ module CDP {
     const ERR_NOT_ENOUGH_MONEY: u64 = 304;
     const ERR_DEAL_NOT_EXPIRED: u64 = 305;
 
+    // dro related
+    const ERR_DRO_NOT_ALLOWED: u64 = 401;
+    const ERR_DRO_ALREADY_ISSUED: u64 = 402;
+    const ERR_DRO_TOO_LONG: u64 = 403;
+
     const ERR_ZERO_AMOUNT: u64 = 201;
 
     const ERR_SECURITY_DOES_NOT_EXIST: u64 = 11;
@@ -87,7 +92,9 @@ module CDP {
         soft_mc: u128,
         hard_mc: u128,
         allow_dro: bool,
+        dro_issued: bool,
         ends_at: u64,
+        dro_buy_gate: u64,
         created_at: u64,
         interest_rate: u64,
         offered_amt: u128,
@@ -365,24 +372,25 @@ module CDP {
         let offered = Dfinance::withdraw<Offered>(&mut offer.deposit, amount_wanted);
         let deal_id = offer.deals_made;
 
-        // Issue Security for this deal which will hold the deal params in it
-        let (security, proof) = Security::issue_forever<CDP<Offered, Collateral>>(
-            account,
-            CDP {
-                lender,
-                deal_id,
-            });
-
-
         let created_at = Time::now();
         let ends_at = created_at + offer.deal_duration;
+
+        // Issue Security for this deal which will hold the deal params in it
+        let (security, proof) = Security::issue<CDP<Offered, Collateral>>(
+            account,
+            CDP { lender, deal_id },
+            ends_at + offer.dro_buy_gate // just in case, if there's a buy off gate in DRO scenario
+        );
+
         let deal = Deal<Offered, Collateral> {
             soft_mc,
             hard_mc,
             ends_at,
             created_at,
             allow_dro: offer.allow_dro,
+            dro_buy_gate: offer.dro_buy_gate,
             offered_amt: amount_wanted,
+            dro_issued: false,
             collateral_amt,
             id: deal_id,
             ltv,
@@ -416,17 +424,45 @@ module CDP {
 
     public fun create_dro<Offered: copyable, Collateral: copyable>(
         account: &signer,
-        security: &Security<CDP<Offered, Collateral>>
-    ) acquires Offer {
+        security: &Security<CDP<Offered, Collateral>>,
+        dro_time: u64 // TIME IN SECONDS
+    ): Security<DRO<Offered, Collateral>> acquires Offer {
 
         let CDP {
             deal_id,
             lender
         } = *Security::borrow(security);
 
-        let _ = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let _ = deal_id;
-        let _ = account;
+        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
+        let (deal_ref, pos) = find_deal<Offered, Collateral>(&offer.deals, deal_id);
+        let dro_end = Time::now() + dro_time;
+
+        assert(deal_ref.allow_dro, ERR_DRO_NOT_ALLOWED);
+        assert(deal_ref.dro_issued == false, ERR_DRO_ALREADY_ISSUED);
+        assert(deal_ref.ends_at >= dro_end, ERR_DRO_TOO_LONG);
+
+        // If conditions are met we can issue DRO
+        // TODO: maybe think of `find_deal_mut` method not to pull element from Vector
+        let deal = Vector::remove(&mut offer.deals, pos);
+
+        deal.dro_issued = true;
+        deal.ends_at = dro_end;
+
+        // How long Security lives
+        let dro_exp = dro_end + deal.dro_buy_gate;
+        let (dro, proof) = Security::issue<DRO<Offered, Collateral>>(
+            account,
+            DRO { lender, deal_id },
+            dro_exp
+        );
+
+        // Put modified deal into storage
+        Vector::push_back(&mut offer.deals, deal);
+        Vector::push_back(&mut offer.proofs, proof); // DRO proof is just like any other proof
+
+        // ADD Event::emit<DroCreated>( /* decide which params to add here */ );
+
+        (dro)
     }
 
     ///
@@ -488,7 +524,9 @@ module CDP {
             hard_mc,
             allow_dro: _,
             created_at: _,
+            dro_buy_gate: _,
             ends_at: _,
+            dro_issued: _,
             ltv,
             interest_rate,
             offered_amt,
@@ -534,7 +572,7 @@ module CDP {
             ERR_OFFER_DOES_NOT_EXIST
         );
         let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let CDP { lender: _, deal_id } = resolve_security(&mut offer.proofs, security);
+        let CDP { lender: _, deal_id } = resolve_security<CDP<Offered, Collateral>>(&mut offer.proofs, security);
         let (deal_ref, pos) = find_deal(&offer.deals, deal_id);
         let status = get_deal_status<Offered, Collateral>(deal_ref);
 
@@ -543,15 +581,25 @@ module CDP {
         let Deal {
             id: _,
             allow_dro: _,
+            dro_issued: _,
             soft_mc: _,
             hard_mc: _,
             ends_at: _,
+            dro_buy_gate: _,
             created_at,
             ltv,
             interest_rate,
             offered_amt,
             collateral_amt
         } = Vector::remove(&mut offer.deals, pos);
+
+        // TODO:
+        // forbid if:
+        // 1. DRO was issued, DRO time has come and SOFT_MC REACHED
+        // 2. DRO was issued, time has not come
+        // allow if:
+        // 1. no DRO
+        // 2. HARD MC not reached
 
         let offered_decimals = Dfinance::decimals<Offered>();
         let offered_num = num(offered_amt, offered_decimals);
@@ -648,10 +696,10 @@ module CDP {
     }
 
     /// Walk through vector of Proofs to find match
-    fun resolve_security<Offered: copyable, Collateral: copyable>(
+    fun resolve_security<SecurityType: copyable>(
         proofs: &mut vector<Security::Proof>,
-        security: Security<CDP<Offered, Collateral>>
-    ): CDP<Offered, Collateral> {
+        security: Security<SecurityType>
+    ): SecurityType {
         let i = 0;
         let l = Vector::length(proofs);
 
