@@ -47,6 +47,8 @@ module CDP {
     const ERR_DRO_NOT_ALLOWED: u64 = 401;
     const ERR_DRO_ALREADY_ISSUED: u64 = 402;
     const ERR_DRO_TOO_LONG: u64 = 403;
+    const ERR_DRO_TOO_EARLY: u64 = 404;
+    const ERR_DRO_SOFT_MC_NOT_REACHED: u64 = 405;
 
     const ERR_ZERO_AMOUNT: u64 = 201;
 
@@ -244,7 +246,7 @@ module CDP {
             exists<Offer<Offered, Collateral>>(lender),
             ERR_OFFER_DOES_NOT_EXIST
         );
-        let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
+        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
 
         offer.is_active = true;
 
@@ -444,16 +446,15 @@ module CDP {
         // If conditions are met we can issue DRO
         // TODO: maybe think of `find_deal_mut` method not to pull element from Vector
         let deal = Vector::remove(&mut offer.deals, pos);
+        let dro_ends_at = dro_end + deal.dro_buy_gate;
 
         deal.dro_issued = true;
-        deal.ends_at = dro_end;
+        deal.ends_at = dro_ends_at;
 
-        // How long Security lives
-        let dro_exp = dro_end + deal.dro_buy_gate;
         let (dro, proof) = Security::issue<DRO<Offered, Collateral>>(
             account,
             DRO { lender, deal_id },
-            dro_exp
+            dro_ends_at
         );
 
         // Put modified deal into storage
@@ -557,6 +558,75 @@ module CDP {
             ltv,
             interest_rate,
         });
+    }
+
+    /// Important
+    /// If DRO resource exists - it automatically means that:
+    /// 1. deal allows DRO
+    /// 2. ends_at = dro_time + dro_buy_gate
+    /// But DEAL MAY NOT EXIST AT THE TIME (was closed by different scenario)
+    public fun pay_back_dro<Offered: copyable, Collateral: copyable>(
+        account: &signer,
+        security: Security<DRO<Offered, Collateral>>
+    ): Dfinance::T<Collateral> acquires Offer {
+        let DRO {
+            lender,
+            deal_id
+        } = *Security::borrow(&security);
+
+        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
+        let (deal_ref, pos) = find_deal(&offer.deals, deal_id);
+        let status = get_deal_status<Offered, Collateral>(deal_ref);
+
+        let now = Time::now();
+        let dro_end = deal_ref.ends_at - deal_ref.dro_buy_gate; // buy gate is not included
+
+        assert(now >= dro_end, ERR_DRO_TOO_EARLY);
+        assert(status == STATUS_SOFT_MC_REACHED, ERR_DRO_SOFT_MC_NOT_REACHED);
+
+        // let stmt can be omitted
+        let _ = resolve_security<DRO<Offered, Collateral>>(&mut offer.proofs, security);
+
+        let Deal {
+            id: _,
+            allow_dro: _,
+            dro_issued: _,
+            soft_mc: _,
+            hard_mc: _,
+            ends_at: _,
+            dro_buy_gate: _,
+            created_at: _, // also
+            ltv: _, // You'll need this
+            interest_rate: _, // and this
+            offered_amt,
+            collateral_amt
+        } = Vector::remove(&mut offer.deals, pos);
+
+        // TODO: the Math, simply copy-paste from `pay_back` method
+        // THIS DUDE MUST PAY OFFERED_AMT + INTEREST RATE BACK
+        let pay_back_amt = offered_amt;
+
+        assert(Account::balance<Offered>(account) >= pay_back_amt, ERR_NOT_ENOUGH_MONEY);
+
+        // Return money by making a direct trasfer
+        let offered_paid = Account::withdraw_from_sender(account, pay_back_amt);
+        Dfinance::deposit<Offered>(&mut offer.deposit, offered_paid);
+
+        let collateral = Dfinance::withdraw(&mut offer.collateral, collateral_amt);
+
+        // MAKE IT DRO EVENT
+        // Event::emit(account, DealClosedPayBackEvent<Offered, Collateral> {
+        //     ltv,
+        //     lender,
+        //     deal_id,
+        //     pay_back_amt,
+        //     interest_rate,
+        //     collateral_amt,
+        //     borrower: Signer::address_of(account),
+        // });
+
+        (collateral)
+
     }
 
     /// Return Offered asset back (by passing Security)
