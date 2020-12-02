@@ -1,5 +1,4 @@
 address 0x1 {
-
 /// Every deal has two generic params:
 ///
 /// - Offered - the offered currency which user would get in
@@ -42,6 +41,7 @@ module CDP {
     const ERR_DEAL_DOES_NOT_EXIST: u64 = 303;
     const ERR_NOT_ENOUGH_MONEY: u64 = 304;
     const ERR_DEAL_NOT_EXPIRED: u64 = 305;
+    const ERR_SOFT_MC_HAS_NOT_OCCURRED_OR_NOT_EXPIRED: u64 = 306;
 
     // dro related
     const ERR_DRO_NOT_ALLOWED: u64 = 401;
@@ -228,7 +228,7 @@ module CDP {
             exists<Offer<Offered, Collateral>>(lender),
             ERR_OFFER_DOES_NOT_EXIST
         );
-        let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
+        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
 
         offer.is_active = false;
 
@@ -288,7 +288,7 @@ module CDP {
             exists<Offer<Offered, Collateral>>(lender),
             ERR_OFFER_DOES_NOT_EXIST
         );
-        let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
+        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
 
         assert(withdraw_amt <= Dfinance::value(&offer.deposit), ERR_CANT_WITHDRAW);
 
@@ -309,7 +309,7 @@ module CDP {
             exists<Offer<Offered, Collateral>>(lender),
             ERR_OFFER_DOES_NOT_EXIST
         );
-        let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
+        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
 
         let withdraw_amt = Dfinance::value(&offer.deposit);
 
@@ -337,7 +337,7 @@ module CDP {
 
         let price = num(Coins::get_price<Collateral, Offered>(), EXCHANGE_RATE_DECIMALS);
 
-        let offered_dec    = Dfinance::decimals<Offered>();
+        let offered_dec = Dfinance::decimals<Offered>();
         let collateral_dec = Dfinance::decimals<Collateral>();
         let collateral_amt = Dfinance::value(&collateral);
 
@@ -346,7 +346,7 @@ module CDP {
 
         // MAX OFFER in Offered (1to1) = COLL_AMT * COLL_OFF_PRICE;
         let max_offer = {
-            let coll    = num(collateral_amt, collateral_dec);
+            let coll = num(collateral_amt, collateral_dec);
             let max_off = Math::mul(coll, copy price);
 
             max_off
@@ -382,7 +382,7 @@ module CDP {
             account,
             CDP { lender, deal_id },
             ends_at + offer.dro_buy_gate // just in case, if there's a buy off gate in DRO scenario
-        );
+);
 
         let deal = Deal<Offered, Collateral> {
             soft_mc,
@@ -428,8 +428,7 @@ module CDP {
         account: &signer,
         security: &Security<CDP<Offered, Collateral>>,
         dro_time: u64 // TIME IN SECONDS
-    ): Security<DRO<Offered, Collateral>> acquires Offer {
-
+): Security<DRO<Offered, Collateral>> acquires Offer {
         let CDP {
             deal_id,
             lender
@@ -475,7 +474,7 @@ module CDP {
             exists<Offer<Offered, Collateral>>(lender),
             ERR_OFFER_DOES_NOT_EXIST
         );
-        let offer     = borrow_global<Offer<Offered, Collateral>>(lender);
+        let offer = borrow_global<Offer<Offered, Collateral>>(lender);
         let (deal, _) = find_deal<Offered, Collateral>(&offer.deals, deal_id);
 
         get_deal_status<Offered, Collateral>(deal)
@@ -486,7 +485,7 @@ module CDP {
         deal: &Deal<Offered, Collateral>
     ): u8 {
         let price = Coins::get_price<Collateral, Offered>();
-        let now   = Time::now();
+        let now = Time::now();
 
         if (now > deal.ends_at) {
             STATUS_EXPIRED
@@ -626,7 +625,6 @@ module CDP {
         // });
 
         (collateral)
-
     }
 
     /// Return Offered asset back (by passing Security)
@@ -651,7 +649,7 @@ module CDP {
         let Deal {
             id: _,
             allow_dro: _,
-            dro_issued: _,
+            dro_issued,
             soft_mc: _,
             hard_mc: _,
             ends_at: _,
@@ -662,6 +660,14 @@ module CDP {
             offered_amt,
             collateral_amt
         } = Vector::remove(&mut offer.deals, pos);
+
+        /// forbid if:
+        // 1. DRO was issued, DRO time has come and SOFT_MC REACHED
+        // 2. DRO was issued, time has not come
+        if (dro_issued) {
+
+        };
+
 
         // TODO:
         // forbid if:
@@ -731,7 +737,7 @@ module CDP {
             exists<Offer<Offered, Collateral>>(lender),
             ERR_OFFER_DOES_NOT_EXIST
         );
-        let off  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
+        let off = borrow_global_mut<Offer<Offered, Collateral>>(lender);
         let (deal, _) = find_deal<Offered, Collateral>(&off.deals, deal_id);
 
         (

@@ -20,15 +20,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      - name: Fetch latest move-tools testrunner binary
+      - name: Fetch latest move-tools dove binary
         uses: dsaltares/fetch-gh-release-asset@master
         with:
           repo: "dfinance/move-tools"
-          version: "tags/0.9.10"
-          file: test-runner-linux
+          version: "latest"
+          file: dove-1.0.0-linux-x86_64
+
+      - name: Rename dove
+        run: mv dove-1.0.0-linux-x86_64 dove
 
       - name: set executable permissions
-        run: sudo chown runner ./test-runner-linux && chmod +x ./test-runner-linux
+        run: sudo chown runner ./dove && chmod +x ./dove
 
       - name: Test
-        run: ./test-runner-linux --sender 0x1 --modules ./stdlib/ --modules ./modules/ tests
+        run: ./dove test
