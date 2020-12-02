@@ -1,0 +1,6 @@
+[package]
+name = "contracts"
+dependencies = [
+    { path = "bak" },
+    { path = "stdlib" },
+]
