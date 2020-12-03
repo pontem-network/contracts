@@ -2,5 +2,5 @@
 name = "contracts"
 dependencies = [
     { path = "bak" },
-    { path = "stdlib" },
+    { git = "https://github.com/dfinance/move-stdlib.git" },
 ]
