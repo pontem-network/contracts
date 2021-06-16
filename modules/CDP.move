@@ -1,9 +1,11 @@
 address 0x1 {
 module CDP {
+    use 0x1::Account;
     use 0x1::Dfinance;
     use 0x1::Signer;
     use 0x1::Event;
     use 0x1::Coins;
+    use 0x1::Math;
     use 0x1::Math::num;
 
     const HARD_MARGIN_CALL: u128 = 130;
@@ -12,6 +14,7 @@ module CDP {
     // offer creation constants start with 100
     const ERR_BANK_DOES_NOT_EXIST: u64 = 101;
     const ERR_NO_ORACLE_PRICE: u64 = 102;
+    const ERR_INCORRECT_LTV: u64 = 103;
 
     const ERR_ZERO_AMOUNT: u64 = 201;
 
@@ -50,14 +53,13 @@ module CDP {
         bank_addr: address,
         collateral: Dfinance::T<Collateral>,
         amount_wanted: u128
-    ) {
+    ): Dfinance::T<Offered> acquires Bank {
         assert(
             exists<Bank<Offered, Collateral>>(bank_addr),
             ERR_BANK_DOES_NOT_EXIST
         );
 
-        let price = Coins::get_price<Collateral, Offered>();
-//        let price = num(Coins::get_price<Collateral, Offered>(), EXCHANGE_RATE_DECIMALS);
+        let price = Coins::get_price<Offered, Collateral>();
 
         let offered_dec = Dfinance::decimals<Offered>();
         let collateral_dec = Dfinance::decimals<Collateral>();
@@ -67,13 +69,30 @@ module CDP {
         assert(collateral_amount > 0, ERR_ZERO_AMOUNT);
 
         // MAX OFFER in Offered (1to1) = COLL_AMT * COLL_OFF_PRICE;
-        let max_offer = {
+        let deal_ltv = {
             let collateral_num = num(collateral_amount, collateral_dec);
             let price_num = num(price, EXCHANGE_RATE_DECIMALS);
-            let max_off = Math::mul(collateral_num, copy price);
+            let wanted_num = num(amount_wanted, offered_dec);
 
-            max_off
+            let ltv_num = Math::div(
+                wanted_num,
+                Math::mul(collateral_num, price_num)
+            );
+            ((Math::scale_to_decimals(ltv_num, 2) * 100) as u64)
         };
+
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
+        let max_ltv = bank.max_ltv;
+        assert(deal_ltv < max_ltv, ERR_INCORRECT_LTV);
+
+        let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, amount_wanted);
+
+        Account::deposit(borrower_acc, bank_addr, collateral);
+
+        let deal = Deal<Offered, Collateral> {};
+        move_to(borrower_acc, deal);
+
+        offered
     }
 
     struct BankCreatedEvent<Offered: copy + store, Collateral: copy + store> has copy {

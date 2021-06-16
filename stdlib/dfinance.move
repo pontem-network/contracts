@@ -8,7 +8,7 @@ module Dfinance {
     use 0x1::Signer;
 
     const ERR_NON_ZERO_DEPOSIT: u64 = 105;
-    const ERR_CANT_WITHDRAW: u64 = 106;
+    const ERR_NOT_ENOUGH_DEPOSIT: u64 = 106;
 
     struct T<Coin> has key, store {
         value: u128
@@ -58,7 +58,7 @@ module Dfinance {
     }
 
     public fun withdraw<Coin: copy + store>(coin: &mut T<Coin>, amount: u128): T<Coin> {
-        assert(coin.value >= amount, ERR_CANT_WITHDRAW);
+        assert(coin.value >= amount, ERR_NOT_ENOUGH_DEPOSIT);
         coin.value = coin.value - amount;
         T { value: amount }
     }

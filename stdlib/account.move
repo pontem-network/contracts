@@ -55,7 +55,7 @@ module Account {
         Dfinance::value(&borrow_global<Balance<Token>>(addr).coin)
     }
 
-    public fun deposit_to_sender<Token: store + copy>(
+    public fun deposit_to_account<Token: store + copy>(
         account: &signer,
         to_deposit: Dfinance::T<Token>
     ) acquires Balance {
