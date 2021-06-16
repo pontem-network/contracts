@@ -1,0 +1,7 @@
+[package]
+name = "contracts"
+dialect = "pont"
+
+dependencies = [
+    { path = "./stdlib" }
+]

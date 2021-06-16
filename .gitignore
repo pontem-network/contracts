@@ -2,3 +2,4 @@ out/
 execute.sh
 executor
 testrunner
+artifacts/
