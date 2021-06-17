@@ -18,6 +18,11 @@ module CDP {
 
     const ERR_ZERO_AMOUNT: u64 = 201;
 
+    // deal close params
+    const ERR_HARD_MC_HAS_OCCURRED: u64 = 301;
+    const ERR_HARD_MC_HAS_NOT_OCCURRED_OR_NOT_EXPIRED: u64 = 302;
+    const ERR_DEAL_DOES_NOT_EXIST: u64 = 303;
+
     struct Bank<Offered: copy + store, Collateral: copy + store> has key {
         deposit: Dfinance::T<Offered>,
 
@@ -46,7 +51,11 @@ module CDP {
             });
     }
 
-    struct Deal<Offered: copy + store, Collateral: copy + store> has key {}
+    struct Deal<Offered: copy + store, Collateral: copy + store> has key {
+        bank_owner_addr: address,
+        collateral: Dfinance::T<Collateral>,
+        offered_amount: u128
+    }
 
     public fun create_deal<Offered: copy + store, Collateral: copy + store>(
         borrower_acc: &signer,
@@ -72,10 +81,9 @@ module CDP {
         let deal_ltv = {
             let collateral_num = num(collateral_amount, collateral_dec);
             let price_num = num(price, EXCHANGE_RATE_DECIMALS);
-            let wanted_num = num(amount_wanted, offered_dec);
 
             let ltv_num = Math::div(
-                wanted_num,
+                num(amount_wanted, offered_dec),
                 Math::mul(collateral_num, price_num)
             );
             ((Math::scale_to_decimals(ltv_num, 2) * 100) as u64)
@@ -85,20 +93,66 @@ module CDP {
         let max_ltv = bank.max_ltv;
         assert(deal_ltv < max_ltv, ERR_INCORRECT_LTV);
 
-        let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, amount_wanted);
-
-        Account::deposit(borrower_acc, bank_addr, collateral);
-
-        let deal = Deal<Offered, Collateral> {};
+        let deal = Deal<Offered, Collateral> {
+            bank_owner_addr: bank_addr,
+            collateral,
+            offered_amount: amount_wanted
+        };
         move_to(borrower_acc, deal);
 
+        let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, amount_wanted);
         offered
+    }
+
+    public fun close_deal_by_margin_call<Offered: copy + store, Collateral: copy + store>(
+        acc: &signer,
+        borrower_addr: address
+    ) acquires Deal {
+        assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
+        let Deal {
+            bank_owner_addr,
+            collateral,
+            offered_amount
+        } = move_from<Deal<Offered, Collateral>>(borrower_addr);
+
+        let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
+        let collateral_amount = Dfinance::value(&collateral);
+        let collateral_decimals = Dfinance::decimals<Collateral>();
+        let collateral_num = num(collateral_amount, collateral_decimals);
+
+        let offered_for_collateral = Math::mul(price_num, collateral_num);
+
+        let offered_decimals = Dfinance::decimals<Offered>();
+        let offered_num = num(offered_amount, offered_decimals);
+        let hard_mc_multiplier = num(HARD_MARGIN_CALL, 2);
+        let hard_mc_num = Math::mul(offered_num, hard_mc_multiplier);
+
+        assert(
+            Math::scale_to_decimals(offered_for_collateral, 18)
+            <= Math::scale_to_decimals(hard_mc_num, 18),
+            ERR_HARD_MC_HAS_NOT_OCCURRED_OR_NOT_EXPIRED
+        );
+        Account::deposit(acc, bank_owner_addr, collateral);
+    }
+
+    fun compute_margin_call(offered_num: Math::Num): Math::Num {
+        // HMC = OFFERED_COINS * 1.3
+        let hard_mc_multiplier = num(HARD_MARGIN_CALL, 2);
+        Math::mul(offered_num, hard_mc_multiplier)
     }
 
     struct BankCreatedEvent<Offered: copy + store, Collateral: copy + store> has copy {
         owner: address,
         deposit_amount: u128,
         max_ltv: u64
+    }
+
+    struct DealCreatedEvent<Offered: copy + store, Collateral: copy + store> {
+
+    }
+
+    struct DealClosedEvent<Offered: copy + store, Collateral: copy + store> {
+
     }
 }
 }

@@ -37,7 +37,6 @@ script {
 /// aborts_with: 106
 script {
     use 0x1::Account;
-//    use 0x1::Debug;
     use 0x1::Dfinance;
     use 0x1::CDP;
     use 0x1::Math;
@@ -107,5 +106,53 @@ script {
         assert(Math::scale_to_decimals(offered_num, 3) == 10218, 1);  // 10.218 ETH
 
         Account::deposit_to_account<ETH>(&borrower_acc, offered);
+    }
+}
+
+/// signers: 0x101
+/// price: eth_btc 1572000000
+/// aborts_with: 302
+script {
+    use 0x1::CDP;
+    use 0x1::Coins::{ETH, BTC};
+
+    fun cannot_close_by_hmc_if_it_did_not_happen(owner_acc: signer) {
+        let borrower_addr = 0x102;
+        CDP::close_deal_by_margin_call<ETH, BTC>(&owner_acc, borrower_addr);
+    }
+}
+
+
+/// signers: 0x101
+/// price: eth_btc 572000000
+script {
+    use 0x1::Account;
+    use 0x1::Math;
+    use 0x1::Math::num;
+    use 0x1::CDP;
+    use 0x1::Coins::{ETH, BTC};
+
+    fun close_deal_by_hmc(owner_acc: signer) {
+        let borrower_addr = 0x102;
+        CDP::close_deal_by_margin_call<ETH, BTC>(&owner_acc, borrower_addr);
+
+        // BTC collateral is 1000 (= 1020 ETH > 100 ETH present in the bank)
+        let btc_num = num(1, 0);
+        let btc_amount = Math::scale_to_decimals(copy btc_num, 10);
+
+        assert(Account::balance<BTC>(&owner_acc) == btc_amount, 90);
+    }
+}
+
+/// signers: 0x101
+/// price: eth_btc 572000000
+/// aborts_with: 303
+script {
+    use 0x1::CDP;
+    use 0x1::Coins::{ETH, BTC};
+
+    fun deal_does_not_exist_after_closing(owner_acc: signer) {
+        let borrower_addr = 0x102;
+        CDP::close_deal_by_margin_call<ETH, BTC>(&owner_acc, borrower_addr);
     }
 }
