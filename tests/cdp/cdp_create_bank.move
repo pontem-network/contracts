@@ -27,13 +27,16 @@ script {
         let eth_minted = Dfinance::mint<ETH>(eth_amount);
         // 66%
         let bank_ltv = 6600;
+        // 0.10% (0010)
+        let interest_rate = 10;
 
-        CDP::create_bank<ETH, BTC>(&owner_acc, eth_minted, bank_ltv);
+        CDP::create_bank<ETH, BTC>(&owner_acc, eth_minted, bank_ltv, interest_rate);
     }
 }
 
 /// signers: 0x102
 /// price: eth_btc 1572000000
+/// current_time: 100
 /// aborts_with: 106
 script {
     use 0x1::Account;
@@ -71,6 +74,7 @@ script {
 
 /// signers: 0x102
 /// price: eth_btc 1572000000
+/// current_time: 100
 script {
     use 0x1::Account;
     use 0x1::Dfinance;
@@ -111,6 +115,7 @@ script {
 
 /// signers: 0x101
 /// price: eth_btc 1572000000
+/// current_time: 100
 /// aborts_with: 302
 script {
     use 0x1::CDP;
@@ -125,6 +130,7 @@ script {
 
 /// signers: 0x101, 0x102
 /// price: eth_btc 1172000000
+/// current_time: 86600
 script {
     use 0x1::Account;
     use 0x1::CDP;
@@ -135,16 +141,17 @@ script {
         CDP::close_deal_by_margin_call<ETH, BTC>(&owner_acc, borrower_addr);
 
         // Owner of Bank gets PRICE_OF_LOAN_IN_COLLATERAL_TOKEN = BORROWED_ETH / RATE_ETH_BTC
-        // 10.218 ETH / (11.72 ETH / BTC) ~= 0.871 BTC
-        assert(Account::balance<BTC>(&owner_acc) == 8718430034, 90);
+        // (10.218 ETH + 0.1% * 2 days * 10.218) / (11.72 ETH / BTC) ~= 0.87358 BTC
+        assert(Account::balance<BTC>(&owner_acc) == 8735866894, 90);
         // Borrower gets remaining Collateral
-        // 1.00 BTC - 0.871 BTC ~= 0.128 BTC
-        assert(Account::balance<BTC>(&borrower_acc) == 1281569966, 90);
+        // 1.00 BTC - 0.87358 BTC ~= 0.12641 BTC
+        assert(Account::balance<BTC>(&borrower_acc) == 1264133106, 90);
     }
 }
 
 /// signers: 0x101
 /// price: eth_btc 1172000000
+/// current_time: 100
 /// aborts_with: 303
 script {
     use 0x1::CDP;

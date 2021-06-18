@@ -5,16 +5,23 @@ module CDP {
     use 0x1::Signer;
     use 0x1::Event;
     use 0x1::Coins;
+    use 0x1::Time;
     use 0x1::Math;
     use 0x1::Math::num;
 
+    const GLOBAL_MAX_LTV: u64 = 6600;  // 66.00%
+    const GLOBAL_MAX_INTEREST_RATE: u64 = 10000;  // 100.00%
     const HARD_MARGIN_CALL: u128 = 130;
+
     const EXCHANGE_RATE_DECIMALS: u8 = 8;
+    const INTEREST_RATE_DECIMALS: u8 = 4;
+    const MARGIN_CALL_DECIMALS: u8 = 2;
 
     // offer creation constants start with 100
     const ERR_BANK_DOES_NOT_EXIST: u64 = 101;
     const ERR_NO_ORACLE_PRICE: u64 = 102;
     const ERR_INCORRECT_LTV: u64 = 103;
+    const ERR_INCORRECT_INTEREST_RATE: u64 = 104;
 
     const ERR_ZERO_AMOUNT: u64 = 201;
 
@@ -26,20 +33,25 @@ module CDP {
     struct Bank<Offered: copy + store, Collateral: copy + store> has key {
         deposit: Dfinance::T<Offered>,
 
-        /// Loan-to-Value ratio, < 6700, 2 signs after comma
-        max_ltv: u64
+        /// Loan-to-Value ratio: [0, 6600] (2 signs after comma)
+        max_ltv: u64,
+        /// loan interest rate: [0, 10000] (2 signs after comma)
+        interest_rate: u64,
     }
 
     public fun create_bank<Offered: copy + store, Collateral: copy + store>(
         owner_acc: &signer,
         deposit: Dfinance::T<Offered>,
-        max_ltv: u64
+        max_ltv: u64,
+        interest_rate: u64,
     ) {
         assert(Coins::has_price<Offered, Collateral>(), ERR_NO_ORACLE_PRICE);
+        assert(0u64 < max_ltv && max_ltv <= GLOBAL_MAX_LTV, ERR_INCORRECT_LTV);
+        assert(interest_rate <= GLOBAL_MAX_INTEREST_RATE, ERR_INCORRECT_INTEREST_RATE);
 
         let deposit_amount = Dfinance::value(&deposit);
 
-        let bank = Bank<Offered, Collateral> { deposit, max_ltv };
+        let bank = Bank<Offered, Collateral> { deposit, max_ltv, interest_rate };
         move_to(owner_acc, bank);
 
         Event::emit(
@@ -48,13 +60,16 @@ module CDP {
                 owner: Signer::address_of(owner_acc),
                 deposit_amount,
                 max_ltv,
+                interest_rate,
             });
     }
 
     struct Deal<Offered: copy + store, Collateral: copy + store> has key {
         bank_owner_addr: address,
         collateral: Dfinance::T<Collateral>,
-        offered_amount: u128
+        offered_amount: u128,
+        created_at: u64,
+        interest_rate: u64,
     }
 
     public fun create_deal<Offered: copy + store, Collateral: copy + store>(
@@ -93,10 +108,15 @@ module CDP {
         let max_ltv = bank.max_ltv;
         assert(deal_ltv < max_ltv, ERR_INCORRECT_LTV);
 
+        let created_at = Time::now();
+        let interest_rate = bank.interest_rate;
+
         let deal = Deal<Offered, Collateral> {
             bank_owner_addr: bank_addr,
             collateral,
-            offered_amount: amount_wanted
+            offered_amount: amount_wanted,
+            created_at,
+            interest_rate,
         };
         move_to(borrower_acc, deal);
 
@@ -112,7 +132,9 @@ module CDP {
         let Deal {
             bank_owner_addr,
             collateral,
-            offered_amount
+            offered_amount,
+            created_at,
+            interest_rate,
         } = move_from<Deal<Offered, Collateral>>(borrower_addr);
 
         let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
@@ -124,16 +146,30 @@ module CDP {
 
         let offered_decimals = Dfinance::decimals<Offered>();
         let offered_num = num(offered_amount, offered_decimals);
-        let hard_mc_multiplier = num(HARD_MARGIN_CALL, 2);
-        let hard_mc_num = Math::mul(copy offered_num, hard_mc_multiplier);
+
+        let interest_rate_num = num((interest_rate as u128), INTEREST_RATE_DECIMALS);
+        let days_passed = Time::days_from(created_at) + 1;
+        let days_passed_num = num((days_passed as u128), 0);
+
+        let interest_pct = Math::mul(days_passed_num, interest_rate_num);
+        let offered_with_interest_num =
+            Math::add(
+                copy offered_num,
+                Math::mul(offered_num, interest_pct)
+            );
+
+        let hard_mc_multiplier = num(HARD_MARGIN_CALL, MARGIN_CALL_DECIMALS);
+        let hard_mc_num = Math::mul(copy offered_with_interest_num, hard_mc_multiplier);
         assert(
             Math::scale_to_decimals(offered_for_collateral, 18)
             <= Math::scale_to_decimals(hard_mc_num, 18),
             ERR_HARD_MC_HAS_NOT_OCCURRED_OR_NOT_EXPIRED
         );
 
-        let owner_collateral_num = Math::div(offered_num, price_num);
+        let owner_collateral_num = Math::div(offered_with_interest_num, price_num);
         let owner_collateral_amount = Math::scale_to_decimals(owner_collateral_num, collateral_decimals);
+        // TODO: if offered + interest > collateral?
+
         let owner_collateral = Dfinance::withdraw(&mut collateral, owner_collateral_amount);
         Account::deposit(acc, bank_owner_addr, owner_collateral);
         Account::deposit(acc, borrower_addr, collateral);
@@ -148,7 +184,8 @@ module CDP {
     struct BankCreatedEvent<Offered: copy + store, Collateral: copy + store> has copy {
         owner: address,
         deposit_amount: u128,
-        max_ltv: u64
+        max_ltv: u64,
+        interest_rate: u64,
     }
 
     struct DealCreatedEvent<Offered: copy + store, Collateral: copy + store> {}
