@@ -82,7 +82,7 @@ script {
     fun create_cdp_deal(borrower_acc: signer) {
         let bank_address = 0x101;
 
-        // BTC collateral is 1 (= 10.2 ETH)
+        // BTC collateral is 1 (= 15.72 ETH)
         let btc_num = num(1, 0);
         let btc_amount = Math::scale_to_decimals(copy btc_num, 10);
 
@@ -123,29 +123,28 @@ script {
 }
 
 
-/// signers: 0x101
-/// price: eth_btc 572000000
+/// signers: 0x101, 0x102
+/// price: eth_btc 1172000000
 script {
     use 0x1::Account;
-    use 0x1::Math;
-    use 0x1::Math::num;
     use 0x1::CDP;
     use 0x1::Coins::{ETH, BTC};
 
-    fun close_deal_by_hmc(owner_acc: signer) {
+    fun close_deal_by_hmc(owner_acc: signer, borrower_acc: signer) {
         let borrower_addr = 0x102;
         CDP::close_deal_by_margin_call<ETH, BTC>(&owner_acc, borrower_addr);
 
-        // BTC collateral is 1000 (= 1020 ETH > 100 ETH present in the bank)
-        let btc_num = num(1, 0);
-        let btc_amount = Math::scale_to_decimals(copy btc_num, 10);
-
-        assert(Account::balance<BTC>(&owner_acc) == btc_amount, 90);
+        // Owner of Bank gets PRICE_OF_LOAN_IN_COLLATERAL_TOKEN = BORROWED_ETH / RATE_ETH_BTC
+        // 10.218 ETH / (11.72 ETH / BTC) ~= 0.871 BTC
+        assert(Account::balance<BTC>(&owner_acc) == 8718430034, 90);
+        // Borrower gets remaining Collateral
+        // 1.00 BTC - 0.871 BTC ~= 0.128 BTC
+        assert(Account::balance<BTC>(&borrower_acc) == 1281569966, 90);
     }
 }
 
 /// signers: 0x101
-/// price: eth_btc 572000000
+/// price: eth_btc 1172000000
 /// aborts_with: 303
 script {
     use 0x1::CDP;

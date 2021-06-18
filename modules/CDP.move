@@ -120,19 +120,23 @@ module CDP {
         let collateral_decimals = Dfinance::decimals<Collateral>();
         let collateral_num = num(collateral_amount, collateral_decimals);
 
-        let offered_for_collateral = Math::mul(price_num, collateral_num);
+        let offered_for_collateral = Math::mul(copy price_num, collateral_num);
 
         let offered_decimals = Dfinance::decimals<Offered>();
         let offered_num = num(offered_amount, offered_decimals);
         let hard_mc_multiplier = num(HARD_MARGIN_CALL, 2);
-        let hard_mc_num = Math::mul(offered_num, hard_mc_multiplier);
-
+        let hard_mc_num = Math::mul(copy offered_num, hard_mc_multiplier);
         assert(
             Math::scale_to_decimals(offered_for_collateral, 18)
             <= Math::scale_to_decimals(hard_mc_num, 18),
             ERR_HARD_MC_HAS_NOT_OCCURRED_OR_NOT_EXPIRED
         );
-        Account::deposit(acc, bank_owner_addr, collateral);
+
+        let owner_collateral_num = Math::div(offered_num, price_num);
+        let owner_collateral_amount = Math::scale_to_decimals(owner_collateral_num, collateral_decimals);
+        let owner_collateral = Dfinance::withdraw(&mut collateral, owner_collateral_amount);
+        Account::deposit(acc, bank_owner_addr, owner_collateral);
+        Account::deposit(acc, borrower_addr, collateral);
     }
 
     fun compute_margin_call(offered_num: Math::Num): Math::Num {
@@ -147,12 +151,8 @@ module CDP {
         max_ltv: u64
     }
 
-    struct DealCreatedEvent<Offered: copy + store, Collateral: copy + store> {
+    struct DealCreatedEvent<Offered: copy + store, Collateral: copy + store> {}
 
-    }
-
-    struct DealClosedEvent<Offered: copy + store, Collateral: copy + store> {
-
-    }
+    struct DealClosedEvent<Offered: copy + store, Collateral: copy + store> {}
 }
 }
