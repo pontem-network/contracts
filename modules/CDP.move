@@ -24,6 +24,7 @@ module CDP {
     const ERR_INCORRECT_INTEREST_RATE: u64 = 104;
 
     const ERR_ZERO_AMOUNT: u64 = 201;
+    const ERR_ZERO_COLLATERAL: u64 = 201;
 
     // deal close params
     const ERR_HARD_MC_HAS_OCCURRED: u64 = 301;
@@ -37,22 +38,22 @@ module CDP {
         /// Loan-to-Value ratio: [0, 6600] (2 signs after comma)
         max_ltv: u64,
         /// loan interest rate: [0, 10000] (2 signs after comma)
-        interest_rate: u64,
+        interest_rate_per_year: u64,
     }
 
     public fun create_bank<Offered: copy + store, Collateral: copy + store>(
         owner_acc: &signer,
         deposit: Dfinance::T<Offered>,
         max_ltv: u64,
-        interest_rate: u64,
+        interest_rate_per_year: u64,
     ) {
         assert(Coins::has_price<Offered, Collateral>(), ERR_NO_ORACLE_PRICE);
         assert(0u64 < max_ltv && max_ltv <= GLOBAL_MAX_LTV, ERR_INCORRECT_LTV);
-        assert(interest_rate <= GLOBAL_MAX_INTEREST_RATE, ERR_INCORRECT_INTEREST_RATE);
+        assert(interest_rate_per_year <= GLOBAL_MAX_INTEREST_RATE, ERR_INCORRECT_INTEREST_RATE);
 
         let deposit_amount = Dfinance::value(&deposit);
 
-        let bank = Bank<Offered, Collateral> { deposit, max_ltv, interest_rate };
+        let bank = Bank<Offered, Collateral> { deposit, max_ltv, interest_rate_per_year };
         move_to(owner_acc, bank);
 
         Event::emit(
@@ -61,7 +62,7 @@ module CDP {
                 owner: Signer::address_of(owner_acc),
                 deposit_amount,
                 max_ltv,
-                interest_rate,
+                interest_rate_per_year,
             });
     }
 
@@ -70,7 +71,7 @@ module CDP {
         collateral: Dfinance::T<Collateral>,
         offered_amount: u128,
         created_at: u64,
-        interest_rate: u64,
+        interest_rate_per_year: u64,
     }
 
     public fun create_deal<Offered: copy + store, Collateral: copy + store>(
@@ -91,7 +92,7 @@ module CDP {
         let collateral_amount = Dfinance::value(&collateral);
 
         assert(amount_wanted > 0, ERR_ZERO_AMOUNT);
-        assert(collateral_amount > 0, ERR_ZERO_AMOUNT);
+        assert(collateral_amount > 0, ERR_ZERO_COLLATERAL);
 
         // MAX OFFER in Offered (1to1) = COLL_AMT * COLL_OFF_PRICE;
         let deal_ltv = {
@@ -107,17 +108,17 @@ module CDP {
 
         let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
         let max_ltv = bank.max_ltv;
-        assert(deal_ltv < max_ltv, ERR_INCORRECT_LTV);
+        assert(deal_ltv <= max_ltv, ERR_INCORRECT_LTV);
 
         let created_at = Time::now();
-        let interest_rate = bank.interest_rate;
+        let interest_rate_per_year = bank.interest_rate_per_year;
 
         let deal = Deal<Offered, Collateral> {
             bank_owner_addr: bank_addr,
             collateral,
             offered_amount: amount_wanted,
             created_at,
-            interest_rate,
+            interest_rate_per_year,
         };
         move_to(borrower_acc, deal);
 
@@ -137,7 +138,7 @@ module CDP {
             collateral,
             offered_amount: _,
             created_at: _,
-            interest_rate: _,
+            interest_rate_per_year: _,
         } = move_from<Deal<Offered, Collateral>>(borrower_addr);
 
         let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
@@ -184,7 +185,7 @@ module CDP {
             collateral,
             offered_amount: _,
             created_at: _,
-            interest_rate: _,
+            interest_rate_per_year: _,
         } = move_from<Deal<Offered, Collateral>>(borrower_addr);
 
         Account::deposit(acc, bank_owner_addr, offered);
@@ -200,7 +201,7 @@ module CDP {
         let offered_decimals = Dfinance::decimals<Offered>();
         let offered_num = num(deal.offered_amount, offered_decimals);
 
-        let interest_rate_num = num((deal.interest_rate as u128), INTEREST_RATE_DECIMALS);
+        let interest_rate_num = num((deal.interest_rate_per_year as u128), INTEREST_RATE_DECIMALS);
         let days_passed = Time::days_from(deal.created_at) + 1;
         let days_passed_num = num((days_passed as u128), 0);
 
@@ -224,7 +225,7 @@ module CDP {
         owner: address,
         deposit_amount: u128,
         max_ltv: u64,
-        interest_rate: u64,
+        interest_rate_per_year: u64,
     }
 
     struct DealCreatedEvent<Offered: copy + store, Collateral: copy + store> {}
