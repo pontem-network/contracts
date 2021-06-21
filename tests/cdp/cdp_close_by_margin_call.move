@@ -141,11 +141,11 @@ script {
         CDP::close_deal_by_margin_call<ETH, BTC>(&owner_acc, borrower_addr);
 
         // Owner of Bank gets PRICE_OF_LOAN_IN_COLLATERAL_TOKEN = BORROWED_ETH / RATE_ETH_BTC
-        // (10.218 ETH + 0.1% * 2 days * 10.218) / (11.72 ETH / BTC) ~= 0.87358 BTC
-        assert(Account::balance<BTC>(&owner_acc) == 8735866894, 90);
+        // (10.218 ETH + 0.1% * (2 / 365) days * 10.218) / (11.72 ETH / BTC) ~= 0.87187 BTC
+        assert(Account::balance<BTC>(&owner_acc) == 8718477806, 90);
         // Borrower gets remaining Collateral
-        // 1.00 BTC - 0.87358 BTC ~= 0.12641 BTC
-        assert(Account::balance<BTC>(&borrower_acc) == 1264133106, 90);
+        // 1.00 BTC - 0.87358 BTC ~= 0.12815 BTC
+        assert(Account::balance<BTC>(&borrower_acc) == 1281522194, 90);
     }
 }
 

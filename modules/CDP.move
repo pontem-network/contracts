@@ -29,6 +29,7 @@ module CDP {
     const ERR_HARD_MC_HAS_OCCURRED: u64 = 301;
     const ERR_HARD_MC_HAS_NOT_OCCURRED_OR_NOT_EXPIRED: u64 = 302;
     const ERR_DEAL_DOES_NOT_EXIST: u64 = 303;
+    const ERR_INVALID_PAYBACK_AMOUNT: u64 = 303;
 
     struct Bank<Offered: copy + store, Collateral: copy + store> has key {
         deposit: Dfinance::T<Offered>,
@@ -129,12 +130,14 @@ module CDP {
         borrower_addr: address
     ) acquires Deal {
         assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
+
+        let loan_amount_num = get_loan_amount<Offered, Collateral>(borrower_addr);
         let Deal {
             bank_owner_addr,
             collateral,
-            offered_amount,
-            created_at,
-            interest_rate,
+            offered_amount: _,
+            created_at: _,
+            interest_rate: _,
         } = move_from<Deal<Offered, Collateral>>(borrower_addr);
 
         let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
@@ -144,35 +147,71 @@ module CDP {
 
         let offered_for_collateral = Math::mul(copy price_num, collateral_num);
 
-        let offered_decimals = Dfinance::decimals<Offered>();
-        let offered_num = num(offered_amount, offered_decimals);
-
-        let interest_rate_num = num((interest_rate as u128), INTEREST_RATE_DECIMALS);
-        let days_passed = Time::days_from(created_at) + 1;
-        let days_passed_num = num((days_passed as u128), 0);
-
-        let interest_pct = Math::mul(days_passed_num, interest_rate_num);
-        let offered_with_interest_num =
-            Math::add(
-                copy offered_num,
-                Math::mul(offered_num, interest_pct)
-            );
-
         let hard_mc_multiplier = num(HARD_MARGIN_CALL, MARGIN_CALL_DECIMALS);
-        let hard_mc_num = Math::mul(copy offered_with_interest_num, hard_mc_multiplier);
+        let hard_mc_num = Math::mul(copy loan_amount_num, hard_mc_multiplier);
         assert(
             Math::scale_to_decimals(offered_for_collateral, 18)
             <= Math::scale_to_decimals(hard_mc_num, 18),
             ERR_HARD_MC_HAS_NOT_OCCURRED_OR_NOT_EXPIRED
         );
 
-        let owner_collateral_num = Math::div(offered_with_interest_num, price_num);
+        let owner_collateral_num = Math::div(loan_amount_num, price_num);
         let owner_collateral_amount = Math::scale_to_decimals(owner_collateral_num, collateral_decimals);
         // TODO: if offered + interest > collateral?
 
         let owner_collateral = Dfinance::withdraw(&mut collateral, owner_collateral_amount);
         Account::deposit(acc, bank_owner_addr, owner_collateral);
         Account::deposit(acc, borrower_addr, collateral);
+    }
+
+    public fun pay_back<Offered: copy + store, Collateral: copy + store>(
+        acc: &signer,
+        borrower_addr: address,
+        offered: Dfinance::T<Offered>,
+    ): Dfinance::T<Collateral> acquires Deal {
+        assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
+
+        let offered_decimals = Dfinance::decimals<Offered>();
+
+        let loan_amount_num = get_loan_amount<Offered, Collateral>(borrower_addr);
+        let loan_amount = Math::scale_to_decimals(loan_amount_num, offered_decimals);
+        assert(
+            Dfinance::value(&offered) == loan_amount,
+            ERR_INVALID_PAYBACK_AMOUNT
+        );
+        let Deal {
+            bank_owner_addr,
+            collateral,
+            offered_amount: _,
+            created_at: _,
+            interest_rate: _,
+        } = move_from<Deal<Offered, Collateral>>(borrower_addr);
+
+        Account::deposit(acc, bank_owner_addr, offered);
+        collateral
+    }
+
+    public fun get_loan_amount<Offered: copy + store, Collateral: copy + store>(
+        borrower_addr: address,
+    ): Math::Num acquires Deal {
+        assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
+
+        let deal = borrow_global<Deal<Offered, Collateral>>(borrower_addr);
+        let offered_decimals = Dfinance::decimals<Offered>();
+        let offered_num = num(deal.offered_amount, offered_decimals);
+
+        let interest_rate_num = num((deal.interest_rate as u128), INTEREST_RATE_DECIMALS);
+        let days_passed = Time::days_from(deal.created_at) + 1;
+        let days_passed_num = num((days_passed as u128), 0);
+
+        let days_in_year = num(365, 0);
+        let multiplier = Math::div(Math::mul(days_passed_num, interest_rate_num), days_in_year);
+        let offered_with_interest_num =
+            Math::add(
+                copy offered_num,
+                Math::mul(offered_num, multiplier)
+            );
+        offered_with_interest_num
     }
 
     fun compute_margin_call(offered_num: Math::Num): Math::Num {
