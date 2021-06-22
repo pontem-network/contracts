@@ -22,6 +22,7 @@ module CDP {
     const ERR_NO_ORACLE_PRICE: u64 = 102;
     const ERR_INCORRECT_LTV: u64 = 103;
     const ERR_INCORRECT_INTEREST_RATE: u64 = 104;
+    const ERR_BANK_IS_NOT_ACTIVE: u64 = 105;
 
     const ERR_ZERO_AMOUNT: u64 = 201;
     const ERR_ZERO_COLLATERAL: u64 = 201;
@@ -39,6 +40,8 @@ module CDP {
         max_ltv: u64,
         /// loan interest rate: [0, 10000] (2 signs after comma)
         interest_rate_per_year: u64,
+        /// whether this bank can be used for new cdp deals
+        is_active: bool,
     }
 
     public fun create_bank<Offered: copy + store, Collateral: copy + store>(
@@ -53,7 +56,7 @@ module CDP {
 
         let deposit_amount = Dfinance::value(&deposit);
 
-        let bank = Bank<Offered, Collateral> { deposit, max_ltv, interest_rate_per_year };
+        let bank = Bank<Offered, Collateral> { deposit, max_ltv, interest_rate_per_year, is_active: true };
         move_to(owner_acc, bank);
 
         Event::emit(
@@ -64,6 +67,20 @@ module CDP {
                 max_ltv,
                 interest_rate_per_year,
             });
+    }
+
+    public fun set_is_active<Offered: copy + store, Collateral: copy + store>(
+        owner_acc: &signer,
+        is_active: bool,
+    ) acquires Bank {
+        let bank_addr = Signer::address_of(owner_acc);
+        assert(
+            exists<Bank<Offered, Collateral>>(bank_addr),
+            ERR_BANK_DOES_NOT_EXIST
+        );
+
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
+        bank.is_active = is_active;
     }
 
     struct Deal<Offered: copy + store, Collateral: copy + store> has key {
@@ -84,6 +101,9 @@ module CDP {
             exists<Bank<Offered, Collateral>>(bank_addr),
             ERR_BANK_DOES_NOT_EXIST
         );
+
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
+        assert(bank.is_active, ERR_BANK_IS_NOT_ACTIVE);
 
         let price = Coins::get_price<Offered, Collateral>();
 
@@ -106,7 +126,6 @@ module CDP {
             ((Math::scale_to_decimals(ltv_num, 2) * 100) as u64)
         };
 
-        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
         let max_ltv = bank.max_ltv;
         assert(deal_ltv <= max_ltv, ERR_INCORRECT_LTV);
 
