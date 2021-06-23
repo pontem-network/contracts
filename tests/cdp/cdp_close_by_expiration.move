@@ -16,7 +16,6 @@ script {
     use 0x1::Math::num;
     use 0x1::Dfinance;
     use 0x1::Coins::{ETH, BTC};
-
     use 0x1::CDP;
 
     fun mint_some_eth_and_create_bank_from_those_coins(owner_acc: signer) {
@@ -31,44 +30,6 @@ script {
         let interest_rate = 10;
 
         CDP::create_bank<ETH, BTC>(&owner_acc, eth_minted, bank_ltv, interest_rate);
-    }
-}
-
-/// signers: 0x102
-/// price: eth_btc 1572000000
-/// current_time: 100
-/// aborts_with: 106
-script {
-    use 0x1::Account;
-    use 0x1::Dfinance;
-    use 0x1::CDP;
-    use 0x1::Math;
-    use 0x1::Math::num;
-    use 0x1::Coins::{BTC, ETH};
-
-    fun not_enough_eth_available_on_the_bank(borrower_acc: signer) {
-        let bank_address = 0x101;
-
-        // BTC collateral is 1000 (= 1020 ETH > 100 ETH present in the bank)
-        let btc_num = num(100, 0);
-        let btc_amount = Math::scale_to_decimals(copy btc_num, 10);
-
-        let btc_collateral = Dfinance::mint<BTC>(btc_amount);
-
-        // Exchange rate is 15.72 * 10^8 (8 decimal places) = 1572000000
-
-        // LTV = (Offered / (Collateral * Price)) * 100%
-        // Offered = LTV * Collateral * Price / 100%
-        // num(6500, 2) * num(1, 10) * num(1572, 2) =
-        let amount_wanted_num = Math::mul(
-            Math::mul(
-                num(65, 2), // 0.65
-                btc_num),
-            num(1572, 2));  // 15.72 price
-        let amount_wanted = Math::scale_to_decimals(amount_wanted_num, 18); // 1020 ETH
-
-        let offered = CDP::create_deal(&borrower_acc, bank_address, btc_collateral, amount_wanted);
-        Account::deposit_to_account<ETH>(&borrower_acc, offered);
     }
 }
 
@@ -121,7 +82,7 @@ script {
     use 0x1::CDP;
     use 0x1::Coins::{ETH, BTC};
 
-    fun cannot_close_by_hmc_if_it_did_not_happen(owner_acc: signer) {
+    fun cannot_close_by_expiration_if_too_early(owner_acc: signer) {
         let borrower_addr = 0x102;
         CDP::close_deal_by_termination_status<ETH, BTC>(&owner_acc, borrower_addr);
     }
@@ -136,7 +97,7 @@ script {
     use 0x1::CDP;
     use 0x1::Coins::{ETH, BTC};
 
-    fun close_deal_by_hmc(owner_acc: signer, borrower_acc: signer) {
+    fun close_deal_by_expiration(owner_acc: signer, borrower_acc: signer) {
         let borrower_addr = 0x102;
         CDP::close_deal_by_termination_status<ETH, BTC>(&owner_acc, borrower_addr);
 
@@ -157,7 +118,7 @@ script {
     use 0x1::CDP;
     use 0x1::Coins::{ETH, BTC};
 
-    fun deal_does_not_exist_after_closing(owner_acc: signer) {
+    fun deal_does_not_exist_after_closing_by_expiration(owner_acc: signer) {
         let borrower_addr = 0x102;
         CDP::close_deal_by_termination_status<ETH, BTC>(&owner_acc, borrower_addr);
     }

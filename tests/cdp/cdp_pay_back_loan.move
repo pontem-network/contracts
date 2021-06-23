@@ -89,8 +89,9 @@ script {
 
     fun release_collateral_after_paying_back_the_loan(borrower_acc: signer) {
         let borrower_addr = Signer::address_of(&borrower_acc);
-        let loan_amount_num = CDP::get_loan_amount<ETH, BTC>(borrower_addr);
-        let loan_amount = Math::scale_to_decimals(loan_amount_num, 18);
+
+        let loan_amount_num = CDP::compute_loan_amount_with_interest<ETH, BTC>(deal);
+        let loan_amount = Math::value(&loan_amount_num);
 
         let minted_eth_loan = Dfinance::mint<ETH>(loan_amount);
         let collateral = CDP::pay_back<ETH, BTC>(&borrower_acc, borrower_addr, minted_eth_loan);

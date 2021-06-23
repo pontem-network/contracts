@@ -13,6 +13,10 @@ module CDP {
     const GLOBAL_MAX_INTEREST_RATE: u64 = 10000;  // 100.00%
     const HARD_MARGIN_CALL: u128 = 130;
 
+    const STATUS_HARD_MC: u8 = 91;
+    const STATUS_EXPIRED: u8 = 92;
+    const STATUS_VALID_CDP: u8 = 93;
+
     const EXCHANGE_RATE_DECIMALS: u8 = 8;
     const INTEREST_RATE_DECIMALS: u8 = 4;
     const MARGIN_CALL_DECIMALS: u8 = 2;
@@ -23,6 +27,7 @@ module CDP {
     const ERR_INCORRECT_LTV: u64 = 103;
     const ERR_INCORRECT_INTEREST_RATE: u64 = 104;
     const ERR_BANK_IS_NOT_ACTIVE: u64 = 105;
+    const ERR_BANK_DOES_NOT_HAVE_ENOUGH_COINS: u64 = 106;
 
     const ERR_ZERO_AMOUNT: u64 = 201;
     const ERR_ZERO_COLLATERAL: u64 = 201;
@@ -85,8 +90,8 @@ module CDP {
 
     struct Deal<Offered: copy + store, Collateral: copy + store> has key {
         bank_owner_addr: address,
+        loan_amount_num: Math::Num,
         collateral: Dfinance::T<Collateral>,
-        offered_amount: u128,
         created_at: u64,
         interest_rate_per_year: u64,
     }
@@ -95,7 +100,7 @@ module CDP {
         borrower_acc: &signer,
         bank_addr: address,
         collateral: Dfinance::T<Collateral>,
-        amount_wanted: u128
+        loan_amount_num: Math::Num
     ): Dfinance::T<Offered> acquires Bank {
         assert(
             exists<Bank<Offered, Collateral>>(bank_addr),
@@ -105,78 +110,134 @@ module CDP {
         let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
         assert(bank.is_active, ERR_BANK_IS_NOT_ACTIVE);
 
-        let price = Coins::get_price<Offered, Collateral>();
+        let loan_amount = Math::value(&loan_amount_num);
+        assert(loan_amount > 0, ERR_ZERO_AMOUNT);
+        assert(
+            Dfinance::value(&bank.deposit) >= loan_amount,
+            ERR_BANK_DOES_NOT_HAVE_ENOUGH_COINS
+        );
 
-        let offered_dec = Dfinance::decimals<Offered>();
-        let collateral_dec = Dfinance::decimals<Collateral>();
         let collateral_amount = Dfinance::value(&collateral);
-
-        assert(amount_wanted > 0, ERR_ZERO_AMOUNT);
         assert(collateral_amount > 0, ERR_ZERO_COLLATERAL);
-
-        // MAX OFFER in Offered (1to1) = COLL_AMT * COLL_OFF_PRICE;
-        let deal_ltv = {
-            let collateral_num = num(collateral_amount, collateral_dec);
-            let price_num = num(price, EXCHANGE_RATE_DECIMALS);
-
-            let ltv_num = Math::div(
-                num(amount_wanted, offered_dec),
-                Math::mul(collateral_num, price_num)
-            );
-            ((Math::scale_to_decimals(ltv_num, 2) * 100) as u64)
-        };
-
-        let max_ltv = bank.max_ltv;
-        assert(deal_ltv <= max_ltv, ERR_INCORRECT_LTV);
 
         let created_at = Time::now();
         let interest_rate_per_year = bank.interest_rate_per_year;
-
         let deal = Deal<Offered, Collateral> {
             bank_owner_addr: bank_addr,
             collateral,
-            offered_amount: amount_wanted,
+            loan_amount_num,
             created_at,
             interest_rate_per_year,
         };
+
+        let loan_amount_with_one_day_interest = compute_loan_amount_with_interest(&deal);
+        let deal_ltv =
+            compute_ltv<Offered, Collateral>(
+                collateral_amount,
+                loan_amount_with_one_day_interest
+            );
+        assert(deal_ltv <= bank.max_ltv, ERR_INCORRECT_LTV);
+
         move_to(borrower_acc, deal);
 
-        let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, amount_wanted);
+        let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, loan_amount);
         offered
     }
 
-    public fun close_deal_by_margin_call<Offered: copy + store, Collateral: copy + store>(
+    public fun borrow_more<Offered: copy + store, Collateral: copy + store>(
+        borrower_acc: &signer,
+        new_loan_amount_num: Math::Num,
+        collateral_amount: u128,
+    ): Dfinance::T<Offered> acquires Deal, Bank {
+        let borrower_addr = Signer::address_of(borrower_acc);
+        assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
+
+        let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(deal.bank_owner_addr);
+
+        let new_loan_amount = Math::value(&new_loan_amount_num);
+        assert(new_loan_amount > 0, ERR_ZERO_AMOUNT);
+        assert(
+            Dfinance::value(&bank.deposit) >= new_loan_amount,
+            ERR_BANK_DOES_NOT_HAVE_ENOUGH_COINS
+        );
+
+        let existing_loan_amount_num = compute_loan_amount_with_interest(deal);
+        deal.created_at = Time::now();
+        deal.loan_amount_num = Math::add(existing_loan_amount_num, new_loan_amount_num);
+
+        let new_loan_amount_num = compute_loan_amount_with_interest(deal);
+        let new_deal_ltv = compute_ltv<Offered, Collateral>(collateral_amount, new_loan_amount_num);
+        assert(new_deal_ltv <= bank.max_ltv, ERR_INCORRECT_LTV);
+
+        let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, new_loan_amount);
+        offered
+    }
+
+    public fun pay_back_partially<Offered: copy + store, Collateral: copy + store>(
+        acc: &signer,
+        borrower_addr: address,
+        offered: Dfinance::T<Offered>
+    ) acquires Deal {
+        assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
+
+        let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
+        let loan_amount_with_interest_num = compute_loan_amount_with_interest(deal);
+        let bank_owner_addr = deal.bank_owner_addr;
+        let loan_amount_with_interest = Math::value(&loan_amount_with_interest_num);
+
+        let offered_amount = Dfinance::value(&offered);
+        assert(
+            offered_amount < loan_amount_with_interest,
+            ERR_INVALID_PAYBACK_AMOUNT
+        );
+
+        let offered_decimals = Dfinance::decimals<Offered>();
+        let offered_num = num(offered_amount, offered_decimals);
+
+        let new_loan_amount_num = Math::sub(loan_amount_with_interest_num, offered_num);
+        deal.loan_amount_num = new_loan_amount_num;
+        deal.created_at = Time::now();
+
+        Account::deposit(acc, bank_owner_addr, offered);
+    }
+
+    public fun add_collateral<Offered: copy + store, Collateral: copy + store>(
+        _acc: &signer,
+        borrower_addr: address,
+        collateral: Dfinance::T<Collateral>
+    ) acquires Deal {
+        assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
+
+        let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
+        Dfinance::deposit(&mut deal.collateral, collateral);
+    }
+
+    public fun close_deal_by_termination_status<Offered: copy + store, Collateral: copy + store>(
         acc: &signer,
         borrower_addr: address
     ) acquires Deal {
         assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
 
-        let loan_amount_num = get_loan_amount<Offered, Collateral>(borrower_addr);
-        let Deal {
-            bank_owner_addr,
-            collateral,
-            offered_amount: _,
-            created_at: _,
-            interest_rate_per_year: _,
-        } = move_from<Deal<Offered, Collateral>>(borrower_addr);
-
-        let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
-        let collateral_amount = Dfinance::value(&collateral);
-        let collateral_decimals = Dfinance::decimals<Collateral>();
-        let collateral_num = num(collateral_amount, collateral_decimals);
-
-        let offered_for_collateral = Math::mul(copy price_num, collateral_num);
-
-        let hard_mc_multiplier = num(HARD_MARGIN_CALL, MARGIN_CALL_DECIMALS);
-        let hard_mc_num = Math::mul(copy loan_amount_num, hard_mc_multiplier);
+        let deal = move_from<Deal<Offered, Collateral>>(borrower_addr);
+        let deal_status = get_deal_status(&deal);
         assert(
-            Math::scale_to_decimals(offered_for_collateral, 18)
-            <= Math::scale_to_decimals(hard_mc_num, 18),
+            deal_status != STATUS_VALID_CDP,
             ERR_HARD_MC_HAS_NOT_OCCURRED_OR_NOT_EXPIRED
         );
 
-        let owner_collateral_num = Math::div(loan_amount_num, price_num);
-        let owner_collateral_amount = Math::scale_to_decimals(owner_collateral_num, collateral_decimals);
+        let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
+        let loan_amount_with_interest_num = compute_loan_amount_with_interest<Offered, Collateral>(&deal);
+        let Deal {
+            bank_owner_addr,
+            collateral,
+            loan_amount_num: _,
+            created_at: _,
+            interest_rate_per_year: _,
+        } = deal;
+
+        let owner_collateral_num = Math::div(loan_amount_with_interest_num, price_num);
+        let owner_collateral_amount = Math::value(&owner_collateral_num);
         // TODO: if offered + interest > collateral?
 
         let owner_collateral = Dfinance::withdraw(&mut collateral, owner_collateral_amount);
@@ -191,53 +252,83 @@ module CDP {
     ): Dfinance::T<Collateral> acquires Deal {
         assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
 
-        let offered_decimals = Dfinance::decimals<Offered>();
-
-        let loan_amount_num = get_loan_amount<Offered, Collateral>(borrower_addr);
-        let loan_amount = Math::scale_to_decimals(loan_amount_num, offered_decimals);
+        let deal = move_from<Deal<Offered, Collateral>>(borrower_addr);
+        let loan_amount_with_interest_num = compute_loan_amount_with_interest<Offered, Collateral>(&deal);
+        let loan_amount_with_interest = Math::value(&loan_amount_with_interest_num);
         assert(
-            Dfinance::value(&offered) == loan_amount,
+            Dfinance::value(&offered) == loan_amount_with_interest,
             ERR_INVALID_PAYBACK_AMOUNT
         );
         let Deal {
             bank_owner_addr,
             collateral,
-            offered_amount: _,
+            loan_amount_num: _,
             created_at: _,
             interest_rate_per_year: _,
-        } = move_from<Deal<Offered, Collateral>>(borrower_addr);
+        } = deal;
 
         Account::deposit(acc, bank_owner_addr, offered);
         collateral
     }
 
-    public fun get_loan_amount<Offered: copy + store, Collateral: copy + store>(
-        borrower_addr: address,
-    ): Math::Num acquires Deal {
-        assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
-
-        let deal = borrow_global<Deal<Offered, Collateral>>(borrower_addr);
-        let offered_decimals = Dfinance::decimals<Offered>();
-        let offered_num = num(deal.offered_amount, offered_decimals);
-
+    public fun compute_loan_amount_with_interest<Offered: copy + store, Collateral: copy + store>(
+        deal: &Deal<Offered, Collateral>,
+    ): Math::Num {
         let interest_rate_num = num((deal.interest_rate_per_year as u128), INTEREST_RATE_DECIMALS);
         let days_passed = Time::days_from(deal.created_at) + 1;
         let days_passed_num = num((days_passed as u128), 0);
 
         let days_in_year = num(365, 0);
         let multiplier = Math::div(Math::mul(days_passed_num, interest_rate_num), days_in_year);
+        let loan_amount_num = Math::copy_num(&deal.loan_amount_num);
         let offered_with_interest_num =
             Math::add(
-                copy offered_num,
-                Math::mul(offered_num, multiplier)
+                copy loan_amount_num,
+                Math::mul(loan_amount_num, multiplier)
             );
         offered_with_interest_num
+    }
+
+    fun get_deal_status<Offered: copy + store, Collateral: copy + store>(
+        deal: &Deal<Offered, Collateral>
+    ): u8 {
+        let collateral_amount = Dfinance::value(&deal.collateral);
+        let collateral_decimals = Dfinance::decimals<Collateral>();
+        let collateral_num = num(collateral_amount, collateral_decimals);
+        let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
+
+        let offered_for_collateral = Math::mul(copy price_num, collateral_num);
+
+        let hard_mc_multiplier = num(HARD_MARGIN_CALL, MARGIN_CALL_DECIMALS);
+        let loan_amount_with_interest_num = compute_loan_amount_with_interest(deal);
+        let hard_mc_num = Math::mul(loan_amount_with_interest_num, hard_mc_multiplier);
+        if (Math::lte(offered_for_collateral, hard_mc_num)) {
+            return STATUS_HARD_MC
+        };
+        STATUS_EXPIRED
     }
 
     fun compute_margin_call(offered_num: Math::Num): Math::Num {
         // HMC = OFFERED_COINS * 1.3
         let hard_mc_multiplier = num(HARD_MARGIN_CALL, 2);
         Math::mul(offered_num, hard_mc_multiplier)
+    }
+
+    fun compute_ltv<Offered: copy + store, Collateral: copy + store>(
+        collateral_amount: u128,
+        loan_amount_num: Math::Num
+    ): u64 {
+        let price = Coins::get_price<Offered, Collateral>();
+        let collateral_dec = Dfinance::decimals<Collateral>();
+
+        let collateral_num = num(collateral_amount, collateral_dec);
+        let price_num = num(price, EXCHANGE_RATE_DECIMALS);
+
+        let ltv_num = Math::div(
+            loan_amount_num,
+            Math::mul(collateral_num, price_num)
+        );
+        ((Math::scale_to_decimals(ltv_num, 2) * 100) as u64)
     }
 
     struct BankCreatedEvent<Offered: copy + store, Collateral: copy + store> has copy {
