@@ -74,6 +74,39 @@ module CDP {
             });
     }
 
+    public fun add_deposit<Offered: copy + store, Collateral: copy + store>(
+        _acc: &signer,
+        bank_addr: address,
+        deposit: Dfinance::T<Offered>,
+    ) acquires Bank {
+        assert(
+            exists<Bank<Offered, Collateral>>(bank_addr),
+            ERR_BANK_DOES_NOT_EXIST
+        );
+
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
+        Dfinance::deposit(&mut bank.deposit, deposit);
+    }
+
+    public fun withdraw_deposit<Offered: copy + store, Collateral: copy + store>(
+        owner_acc: &signer,
+        amount: u128,
+    ): Dfinance::T<Offered> acquires Bank {
+        let bank_addr = Signer::address_of(owner_acc);
+        assert(
+            exists<Bank<Offered, Collateral>>(bank_addr),
+            ERR_BANK_DOES_NOT_EXIST
+        );
+
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
+        assert(
+            Dfinance::value(&bank.deposit) >= amount,
+            ERR_BANK_DOES_NOT_HAVE_ENOUGH_COINS
+        );
+
+        Dfinance::withdraw(&mut bank.deposit, amount)
+    }
+
     public fun set_is_active<Offered: copy + store, Collateral: copy + store>(
         owner_acc: &signer,
         is_active: bool,
