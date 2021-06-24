@@ -50,6 +50,7 @@ module CDP {
         is_active: bool,
 
         max_loan_term: u64,
+        active_deals_count: u64,
     }
 
     public fun create_bank<Offered: copy + store, Collateral: copy + store>(
@@ -71,7 +72,8 @@ module CDP {
                 max_ltv,
                 interest_rate_per_year,
                 is_active: true,
-                max_loan_term
+                max_loan_term,
+                active_deals_count: 0
             };
         move_to(owner_acc, bank);
 
@@ -221,6 +223,7 @@ module CDP {
         assert(deal_ltv <= bank.max_ltv, ERR_INCORRECT_LTV);
 
         move_to(borrower_acc, deal);
+        bank.active_deals_count = bank.active_deals_count + 1;
 
         let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, loan_amount);
         offered
@@ -298,7 +301,7 @@ module CDP {
     public fun close_deal_by_termination_status<Offered: copy + store, Collateral: copy + store>(
         acc: &signer,
         borrower_addr: address
-    ) acquires Deal {
+    ) acquires Deal, Bank {
         assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
 
         let deal = move_from<Deal<Offered, Collateral>>(borrower_addr);
@@ -319,6 +322,9 @@ module CDP {
             loan_term: _,
             interest_rate_per_year: _,
         } = deal;
+
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_owner_addr);
+        bank.active_deals_count = bank.active_deals_count - 1;
 
         let owner_collateral_num = Math::div(loan_amount_with_interest_num, price_num);
         let owner_collateral_amount = Math::value(&owner_collateral_num);
