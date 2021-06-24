@@ -93,6 +93,8 @@ module CDP {
         loan_amount_num: Math::Num,
         collateral: Dfinance::T<Collateral>,
         created_at: u64,
+        last_borrow_at: u64,
+        duration_in_days: u64,
         interest_rate_per_year: u64,
     }
 
@@ -100,7 +102,8 @@ module CDP {
         borrower_acc: &signer,
         bank_addr: address,
         collateral: Dfinance::T<Collateral>,
-        loan_amount_num: Math::Num
+        loan_amount_num: Math::Num,
+        duration_in_days: u64,
     ): Dfinance::T<Offered> acquires Bank {
         assert(
             exists<Bank<Offered, Collateral>>(bank_addr),
@@ -120,14 +123,15 @@ module CDP {
         let collateral_amount = Dfinance::value(&collateral);
         assert(collateral_amount > 0, ERR_ZERO_COLLATERAL);
 
-        let created_at = Time::now();
         let interest_rate_per_year = bank.interest_rate_per_year;
         let deal = Deal<Offered, Collateral> {
             bank_owner_addr: bank_addr,
             collateral,
             loan_amount_num,
-            created_at,
+            created_at: Time::now(),
+            last_borrow_at: Time::now(),
             interest_rate_per_year,
+            duration_in_days,
         };
 
         let loan_amount_with_one_day_interest = compute_loan_amount_with_interest(&deal);
@@ -163,7 +167,7 @@ module CDP {
         );
 
         let existing_loan_amount_num = compute_loan_amount_with_interest(deal);
-        deal.created_at = Time::now();
+        deal.last_borrow_at = Time::now();
         deal.loan_amount_num = Math::add(existing_loan_amount_num, new_loan_amount_num);
 
         let new_loan_amount_num = compute_loan_amount_with_interest(deal);
@@ -197,7 +201,7 @@ module CDP {
 
         let new_loan_amount_num = Math::sub(loan_amount_with_interest_num, offered_num);
         deal.loan_amount_num = new_loan_amount_num;
-        deal.created_at = Time::now();
+        deal.last_borrow_at = Time::now();
 
         Account::deposit(acc, bank_owner_addr, offered);
     }
@@ -233,6 +237,8 @@ module CDP {
             collateral,
             loan_amount_num: _,
             created_at: _,
+            last_borrow_at: _,
+            duration_in_days: _,
             interest_rate_per_year: _,
         } = deal;
 
@@ -264,6 +270,8 @@ module CDP {
             collateral,
             loan_amount_num: _,
             created_at: _,
+            last_borrow_at: _,
+            duration_in_days: _,
             interest_rate_per_year: _,
         } = deal;
 
@@ -275,7 +283,7 @@ module CDP {
         deal: &Deal<Offered, Collateral>,
     ): Math::Num {
         let interest_rate_num = num((deal.interest_rate_per_year as u128), INTEREST_RATE_DECIMALS);
-        let days_passed = Time::days_from(deal.created_at) + 1;
+        let days_passed = Time::days_from(deal.last_borrow_at) + 1;
         let days_passed_num = num((days_passed as u128), 0);
 
         let days_in_year = num(365, 0);
@@ -305,7 +313,12 @@ module CDP {
         if (Math::lte(offered_for_collateral, hard_mc_num)) {
             return STATUS_HARD_MC
         };
-        STATUS_EXPIRED
+
+        if (Time::days_from(deal.created_at) > deal.duration_in_days) {
+            return STATUS_EXPIRED
+        };
+
+        STATUS_VALID_CDP
     }
 
     fun compute_margin_call(offered_num: Math::Num): Math::Num {
