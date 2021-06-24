@@ -9,7 +9,7 @@ module CDP {
     use 0x1::Math;
     use 0x1::Math::num;
 
-    const GLOBAL_MAX_LTV: u64 = 6600;  // 66.00%
+    const GLOBAL_MAX_LTV: u64 = 8500;  // 85.00%
     const GLOBAL_MAX_INTEREST_RATE: u64 = 10000;  // 100.00%
     const HARD_MARGIN_CALL: u128 = 130;
 
@@ -84,6 +84,7 @@ module CDP {
                 deposit_amount,
                 max_ltv,
                 interest_rate_per_year,
+                max_loan_term
             });
     }
 
@@ -316,7 +317,7 @@ module CDP {
         let Deal {
             bank_owner_addr,
             collateral,
-            loan_amount_num: _,
+            loan_amount_num,
             created_at: _,
             last_borrow_at: _,
             loan_term: _,
@@ -333,6 +334,14 @@ module CDP {
         let owner_collateral = Dfinance::withdraw(&mut collateral, owner_collateral_amount);
         Account::deposit(acc, bank_owner_addr, owner_collateral);
         Account::deposit(acc, borrower_addr, collateral);
+
+        Event::emit(
+            acc,
+            DealTerminatedEvent<Offered, Collateral> {
+                bank_owner_addr,
+                loan_amount_num,
+                collateral
+            })
     }
 
     public fun pay_back<Offered: copy + store, Collateral: copy + store>(
@@ -433,10 +442,32 @@ module CDP {
         deposit_amount: u128,
         max_ltv: u64,
         interest_rate_per_year: u64,
+        max_loan_term: u64,
     }
 
-    struct DealCreatedEvent<Offered: copy + store, Collateral: copy + store> {}
+    struct DealCreatedEvent<Offered: copy + store, Collateral: copy + store> {
+        bank_owner_addr: address,
+        loan_amount_num: Math::Num,
+        collateral_amount: u128,
+        loan_term: u64,
+        interest_rate_per_year: u64,
+    }
 
-    struct DealClosedEvent<Offered: copy + store, Collateral: copy + store> {}
+    struct DealTerminatedEvent<Offered: copy + store, Collateral: copy + store> {
+        bank_owner_addr: address,
+        loan_amount_num: Math::Num,
+        collateral_amount: u128,
+        loan_term: u64,
+        interest_rate_per_year: u64,
+        termination_status: u64,
+    }
+
+    struct DealPaidBackEvent<Offered: copy + store, Collateral: copy + store> {
+        bank_owner_addr: address,
+        loan_amount_num: Math::Num,
+        collateral_amount: u128,
+        loan_term: u64,
+        interest_rate_per_year: u64,
+    }
 }
 }
