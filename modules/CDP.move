@@ -320,8 +320,8 @@ module CDP {
             loan_amount_num,
             created_at: _,
             last_borrow_at: _,
-            loan_term: _,
-            interest_rate_per_year: _,
+            loan_term,
+            interest_rate_per_year,
         } = deal;
 
         let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_owner_addr);
@@ -332,6 +332,8 @@ module CDP {
         // TODO: if offered + interest > collateral?
 
         let owner_collateral = Dfinance::withdraw(&mut collateral, owner_collateral_amount);
+        let owner_collateral_amount = Dfinance::value(&owner_collateral);
+        let borrower_collateral_amount = Dfinance::value(&collateral);
         Account::deposit(acc, bank_owner_addr, owner_collateral);
         Account::deposit(acc, borrower_addr, collateral);
 
@@ -340,7 +342,11 @@ module CDP {
             DealTerminatedEvent<Offered, Collateral> {
                 bank_owner_addr,
                 loan_amount_num,
-                collateral
+                owner_collateral_amount,
+                borrower_collateral_amount,
+                loan_term,
+                interest_rate_per_year,
+                termination_status: deal_status
             })
     }
 
@@ -364,11 +370,20 @@ module CDP {
             loan_amount_num: _,
             created_at: _,
             last_borrow_at: _,
-            loan_term: _,
-            interest_rate_per_year: _,
+            loan_term,
+            interest_rate_per_year,
         } = deal;
 
         Account::deposit(acc, bank_owner_addr, offered);
+        Event::emit(
+            acc,
+            DealPaidBackEvent<Offered, Collateral> {
+                bank_owner_addr,
+                loan_term,
+                collateral_amount: Dfinance::value(&collateral),
+                interest_rate_per_year,
+                loan_amount_with_interest_num,
+            });
         collateral
     }
 
@@ -453,18 +468,19 @@ module CDP {
         interest_rate_per_year: u64,
     }
 
-    struct DealTerminatedEvent<Offered: copy + store, Collateral: copy + store> {
+    struct DealTerminatedEvent<Offered: copy + store, Collateral: copy + store> has copy {
         bank_owner_addr: address,
         loan_amount_num: Math::Num,
-        collateral_amount: u128,
+        owner_collateral_amount: u128,
+        borrower_collateral_amount: u128,
         loan_term: u64,
         interest_rate_per_year: u64,
-        termination_status: u64,
+        termination_status: u8,
     }
 
-    struct DealPaidBackEvent<Offered: copy + store, Collateral: copy + store> {
+    struct DealPaidBackEvent<Offered: copy + store, Collateral: copy + store> has copy {
         bank_owner_addr: address,
-        loan_amount_num: Math::Num,
+        loan_amount_with_interest_num: Math::Num,
         collateral_amount: u128,
         loan_term: u64,
         interest_rate_per_year: u64,
