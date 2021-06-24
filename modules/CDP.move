@@ -25,6 +25,7 @@ module CDP {
     const ERR_BANK_DOES_NOT_EXIST: u64 = 101;
     const ERR_NO_ORACLE_PRICE: u64 = 102;
     const ERR_INCORRECT_LTV: u64 = 103;
+    const ERR_INCORRECT_LOAN_TERM: u64 = 1035;
     const ERR_INCORRECT_INTEREST_RATE: u64 = 104;
     const ERR_BANK_IS_NOT_ACTIVE: u64 = 105;
     const ERR_BANK_DOES_NOT_HAVE_ENOUGH_COINS: u64 = 106;
@@ -47,6 +48,8 @@ module CDP {
         interest_rate_per_year: u64,
         /// whether this bank can be used for new cdp deals
         is_active: bool,
+
+        max_loan_term: u64,
     }
 
     public fun create_bank<Offered: copy + store, Collateral: copy + store>(
@@ -54,6 +57,7 @@ module CDP {
         deposit: Dfinance::T<Offered>,
         max_ltv: u64,
         interest_rate_per_year: u64,
+        max_loan_term: u64,
     ) {
         assert(Coins::has_price<Offered, Collateral>(), ERR_NO_ORACLE_PRICE);
         assert(0u64 < max_ltv && max_ltv <= GLOBAL_MAX_LTV, ERR_INCORRECT_LTV);
@@ -61,7 +65,14 @@ module CDP {
 
         let deposit_amount = Dfinance::value(&deposit);
 
-        let bank = Bank<Offered, Collateral> { deposit, max_ltv, interest_rate_per_year, is_active: true };
+        let bank =
+            Bank<Offered, Collateral> {
+                deposit,
+                max_ltv,
+                interest_rate_per_year,
+                is_active: true,
+                max_loan_term
+            };
         move_to(owner_acc, bank);
 
         Event::emit(
@@ -107,6 +118,39 @@ module CDP {
         Dfinance::withdraw(&mut bank.deposit, amount)
     }
 
+    public fun set_interest_rate<Offered: copy + store, Collateral: copy + store>(
+        owner_acc: &signer,
+        interest_rate_per_year: u64,
+    ) acquires Bank {
+        assert(
+            interest_rate_per_year < GLOBAL_MAX_INTEREST_RATE,
+            ERR_INCORRECT_INTEREST_RATE
+        );
+        let bank_addr = Signer::address_of(owner_acc);
+        assert(
+            exists<Bank<Offered, Collateral>>(bank_addr),
+            ERR_BANK_DOES_NOT_EXIST
+        );
+
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
+        bank.interest_rate_per_year = interest_rate_per_year
+    }
+
+    public fun set_max_loan_term<Offered: copy + store, Collateral: copy + store>(
+        owner_acc: &signer,
+        max_loan_term: u64,
+    ) acquires Bank {
+        assert(max_loan_term > 0, ERR_INCORRECT_LOAN_TERM);
+        let bank_addr = Signer::address_of(owner_acc);
+        assert(
+            exists<Bank<Offered, Collateral>>(bank_addr),
+            ERR_BANK_DOES_NOT_EXIST
+        );
+
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
+        bank.max_loan_term = max_loan_term;
+    }
+
     public fun set_is_active<Offered: copy + store, Collateral: copy + store>(
         owner_acc: &signer,
         is_active: bool,
@@ -127,7 +171,7 @@ module CDP {
         collateral: Dfinance::T<Collateral>,
         created_at: u64,
         last_borrow_at: u64,
-        duration_in_days: u64,
+        loan_term: u64,
         interest_rate_per_year: u64,
     }
 
@@ -136,7 +180,7 @@ module CDP {
         bank_addr: address,
         collateral: Dfinance::T<Collateral>,
         loan_amount_num: Math::Num,
-        duration_in_days: u64,
+        loan_term: u64,
     ): Dfinance::T<Offered> acquires Bank {
         assert(
             exists<Bank<Offered, Collateral>>(bank_addr),
@@ -145,6 +189,7 @@ module CDP {
 
         let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
         assert(bank.is_active, ERR_BANK_IS_NOT_ACTIVE);
+        assert(loan_term <= bank.max_loan_term, ERR_INCORRECT_LOAN_TERM);
 
         let loan_amount = Math::value(&loan_amount_num);
         assert(loan_amount > 0, ERR_ZERO_AMOUNT);
@@ -164,7 +209,7 @@ module CDP {
             created_at: Time::now(),
             last_borrow_at: Time::now(),
             interest_rate_per_year,
-            duration_in_days,
+            loan_term,
         };
 
         let loan_amount_with_one_day_interest = compute_loan_amount_with_interest(&deal);
@@ -271,7 +316,7 @@ module CDP {
             loan_amount_num: _,
             created_at: _,
             last_borrow_at: _,
-            duration_in_days: _,
+            loan_term: _,
             interest_rate_per_year: _,
         } = deal;
 
@@ -304,7 +349,7 @@ module CDP {
             loan_amount_num: _,
             created_at: _,
             last_borrow_at: _,
-            duration_in_days: _,
+            loan_term: _,
             interest_rate_per_year: _,
         } = deal;
 
@@ -347,7 +392,7 @@ module CDP {
             return STATUS_HARD_MC
         };
 
-        if (Time::days_from(deal.created_at) > deal.duration_in_days) {
+        if (Time::days_from(deal.created_at) > deal.loan_term) {
             return STATUS_EXPIRED
         };
 
