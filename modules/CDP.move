@@ -492,12 +492,12 @@ module CDP {
     fun compute_loan_amount_with_interest<Offered: copy + store, Collateral: copy + store>(
         deal: &Deal<Offered, Collateral>,
     ): Math::Num {
-        let multiplier = compute_interest_rate_multiplier(deal);
+        let interest_multiplier = compute_interest_rate_multiplier(deal);
         let loan_amount_num = *&deal.loan_amount_num;
         let offered_with_interest_num =
             Math::add(
                 copy loan_amount_num,
-                Math::mul(loan_amount_num, multiplier)
+                Math::mul(loan_amount_num, interest_multiplier)
             );
         offered_with_interest_num
     }
@@ -505,7 +505,9 @@ module CDP {
     fun compute_interest_rate_multiplier<Offered: copy + store, Collateral: copy + store>(
         deal: &Deal<Offered, Collateral>
     ): Math::Num {
-        let days_passed = Time::days_from(deal.collect_interest_rate_from) + 1;
+        let deal_just_created = deal.created_at
+                                == deal.collect_interest_rate_from;
+        let days_passed = Time::days_from(deal.collect_interest_rate_from) + if (deal_just_created) 1 else 0;
         let days_passed_num = num((days_passed as u128), 0);
         let interest_rate_num = num((deal.interest_rate_per_year as u128), INTEREST_RATE_DECIMALS);
         let days_in_year = num(365, 0);
