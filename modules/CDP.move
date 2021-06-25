@@ -197,7 +197,7 @@ module CDP {
         assert(bank.is_active, ERR_BANK_IS_NOT_ACTIVE);
         assert(loan_term <= bank.max_loan_term, ERR_INCORRECT_LOAN_TERM);
 
-        let loan_amount = Math::value(&loan_amount_num);
+        let (loan_amount, _) = Math::num_unpack(copy loan_amount_num);
         assert(loan_amount > 0, ERR_ZERO_AMOUNT);
         assert(
             Dfinance::value(&bank.deposit) >= loan_amount,
@@ -246,7 +246,7 @@ module CDP {
         let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
         let bank = borrow_global_mut<Bank<Offered, Collateral>>(deal.bank_owner_addr);
 
-        let new_loan_amount = Math::value(&new_loan_amount_num);
+        let (new_loan_amount, _) = Math::num_unpack(copy new_loan_amount_num);
         assert(new_loan_amount > 0, ERR_ZERO_AMOUNT);
         assert(
             Dfinance::value(&bank.deposit) >= new_loan_amount,
@@ -275,7 +275,7 @@ module CDP {
         let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
         let loan_amount_with_interest_num = compute_loan_amount_with_interest(deal);
         let bank_owner_addr = deal.bank_owner_addr;
-        let loan_amount_with_interest = Math::value(&loan_amount_with_interest_num);
+        let (loan_amount_with_interest, _) = Math::num_unpack(copy loan_amount_with_interest_num);
 
         let offered_amount = Dfinance::value(&offered);
         assert(
@@ -334,7 +334,7 @@ module CDP {
         bank.active_deals_count = bank.active_deals_count - 1;
 
         let owner_collateral_num = Math::div(loan_amount_with_interest_num, price_num);
-        let owner_collateral_amount = Math::value(&owner_collateral_num);
+        let (owner_collateral_amount, _) = Math::num_unpack(copy owner_collateral_num);
         // TODO: if offered + interest > collateral?
 
         let owner_collateral = Dfinance::withdraw(&mut collateral, owner_collateral_amount);
@@ -365,7 +365,7 @@ module CDP {
 
         let deal = move_from<Deal<Offered, Collateral>>(borrower_addr);
         let loan_amount_with_interest_num = compute_loan_amount_with_interest<Offered, Collateral>(&deal);
-        let loan_amount_with_interest = Math::value(&loan_amount_with_interest_num);
+        let (loan_amount_with_interest, _) = Math::num_unpack(copy loan_amount_with_interest_num);
         assert(
             Dfinance::value(&offered) == loan_amount_with_interest,
             ERR_INVALID_PAYBACK_AMOUNT
@@ -403,7 +403,7 @@ module CDP {
 
         let days_in_year = num(365, 0);
         let multiplier = Math::div(Math::mul(days_passed_num, interest_rate_num), days_in_year);
-        let loan_amount_num = Math::copy_num(&deal.loan_amount_num);
+        let loan_amount_num = *&deal.loan_amount_num;
         let offered_with_interest_num =
             Math::add(
                 copy loan_amount_num,
@@ -425,7 +425,8 @@ module CDP {
         let hard_mc_multiplier = num(HARD_MARGIN_CALL, MARGIN_CALL_DECIMALS);
         let loan_amount_with_interest_num = compute_loan_amount_with_interest(deal);
         let hard_mc_num = Math::mul(loan_amount_with_interest_num, hard_mc_multiplier);
-        if (Math::lte(offered_for_collateral, hard_mc_num)) {
+        if (Math::scale_to_decimals(offered_for_collateral, 18)
+            <= Math::scale_to_decimals(hard_mc_num, 18)) {
             return STATUS_HARD_MC
         };
 
