@@ -212,12 +212,13 @@ module CDP {
             deal_id: bank.next_deal_id,
             bank_owner_addr: bank_addr,
             collateral,
-            loan_amount_num,
+            loan_amount_num: copy loan_amount_num,
             created_at: Time::now(),
             last_borrow_at: Time::now(),
             interest_rate_per_year,
             loan_term,
         };
+        let deal_id = deal.deal_id;
 
         let loan_amount_with_one_day_interest = compute_loan_amount_with_interest(&deal);
         let deal_ltv =
@@ -232,6 +233,17 @@ module CDP {
         bank.next_deal_id = bank.next_deal_id + 1;
 
         let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, loan_amount);
+        Event::emit(
+            borrower_acc,
+            DealCreatedEvent<Offered, Collateral> {
+                borrower_addr: Signer::address_of(borrower_acc),
+                bank_owner_addr: bank_addr,
+                deal_id,
+                loan_amount_num,
+                collateral_amount,
+                loan_term,
+                interest_rate_per_year,
+            });
         offered
     }
 
@@ -262,6 +274,14 @@ module CDP {
         assert(new_deal_ltv <= bank.max_ltv, ERR_INCORRECT_LTV);
 
         let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, new_loan_amount);
+        Event::emit(
+            borrower_acc,
+            DealBorrowedMoreEvent<Offered, Collateral> {
+                borrower_addr,
+                bank_owner_addr: deal.bank_owner_addr,
+                deal_id: deal.deal_id,
+                new_loan_amount,
+            });
         offered
     }
 
@@ -291,17 +311,34 @@ module CDP {
         deal.last_borrow_at = Time::now();
 
         Account::deposit(acc, bank_owner_addr, offered);
+        Event::emit(
+            acc,
+            DealPartiallyRepaidEvent<Offered, Collateral> {
+                borrower_addr,
+                bank_owner_addr,
+                deal_id: deal.deal_id,
+                repaid_loan_amount: offered_amount,
+            });
     }
 
     public fun add_collateral<Offered: copy + store, Collateral: copy + store>(
-        _acc: &signer,
+        acc: &signer,
         borrower_addr: address,
         collateral: Dfinance::T<Collateral>
     ) acquires Deal {
         assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
 
         let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
+        let collateral_amount = Dfinance::value(&collateral);
         Dfinance::deposit(&mut deal.collateral, collateral);
+        Event::emit(
+            acc,
+            DealCollateralAddedEvent<Offered, Collateral> {
+                borrower_addr,
+                bank_owner_addr: deal.bank_owner_addr,
+                deal_id: deal.deal_id,
+                collateral_added_amount: collateral_amount,
+            });
     }
 
     public fun close_deal_by_termination_status<Offered: copy + store, Collateral: copy + store>(
@@ -468,7 +505,27 @@ module CDP {
         max_loan_term: u64,
     }
 
-    struct DealCreatedEvent<Offered: copy + store, Collateral: copy + store> {
+    struct BankUpdatedDepositAmountEvent<Offered: copy + store, Collateral: copy + store> has copy {
+        owner: address,
+        new_deposit_amount: u128,
+    }
+
+    struct BankUpdatedInterestRateEvent<Offered: copy + store, Collateral: copy + store> has copy {
+        owner: address,
+        new_interest_rate: u64,
+    }
+
+    struct BankUpdatedLoanTermEvent<Offered: copy + store, Collateral: copy + store> has copy {
+        owner: address,
+        new_loan_term: u64,
+    }
+
+    struct BankChangeActiveStatus<Offered: copy + store, Collateral: copy + store> has copy {
+        owner: address,
+        is_active: bool
+    }
+
+    struct DealCreatedEvent<Offered: copy + store, Collateral: copy + store> has copy {
         borrower_addr: address,
         bank_owner_addr: address,
         deal_id: u64,
@@ -476,6 +533,27 @@ module CDP {
         collateral_amount: u128,
         loan_term: u64,
         interest_rate_per_year: u64,
+    }
+
+    struct DealBorrowedMoreEvent<Offered: copy + store, Collateral: copy + store> has copy {
+        borrower_addr: address,
+        bank_owner_addr: address,
+        deal_id: u64,
+        new_loan_amount: u128,
+    }
+
+    struct DealPartiallyRepaidEvent<Offered: copy + store, Collateral: copy + store> has copy {
+        borrower_addr: address,
+        bank_owner_addr: address,
+        deal_id: u64,
+        repaid_loan_amount: u128,
+    }
+
+    struct DealCollateralAddedEvent<Offered: copy + store, Collateral: copy + store> has copy {
+        borrower_addr: address,
+        bank_owner_addr: address,
+        deal_id: u64,
+        collateral_added_amount: u128
     }
 
     struct DealTerminatedEvent<Offered: copy + store, Collateral: copy + store> has copy {
