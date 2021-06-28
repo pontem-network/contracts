@@ -107,3 +107,82 @@ script {
         assert(Math::equals(loan_amount, num(70000178082191780805, 18)), 2);
     }
 }
+
+
+/// signers: 0x102
+/// price: eth_btc 10000000000
+/// current_time: 300
+script {
+    use 0x1::Account;
+    use 0x1::CDP;
+    use 0x1::Signer;
+    use 0x1::Math::num;
+    use 0x1::Math;
+    use 0x1::Coins::{ETH, BTC};
+
+    fun borrow_3_more_eth_no_new_interest_added(borrower_acc: signer) {
+        // use different representation to test for correct unpacking
+        let new_loan_num = num(3000, 3);
+        let eth = CDP::borrow_more<ETH, BTC>(&borrower_acc, new_loan_num);
+        Account::deposit_to_account<ETH>(&borrower_acc, eth);
+
+        let borrower_addr = Signer::address_of(&borrower_acc);
+        let status = CDP::get_deal_status<ETH, BTC>(borrower_addr);
+        assert(status == 93, 1);
+
+        let loan_amount = CDP::get_loan_amount<ETH, BTC>(borrower_addr);
+        assert(Math::equals(loan_amount, num(73000178082191780805, 18)), 2);
+    }
+}
+
+
+/// signers: 0x102
+/// price: eth_btc 8000000000
+/// current_time: 400
+script {
+    use 0x1::CDP;
+    use 0x1::Signer;
+    use 0x1::Dfinance;
+    use 0x1::Math::num;
+    use 0x1::Math;
+    use 0x1::Coins::{ETH, BTC};
+
+    fun add_more_collateral(borrower_acc: signer) {
+        let new_collateral_num = num(5, 1);  // 0.5 BTC
+        let new_collateral_amount = Math::scale_to_decimals(new_collateral_num, 10);
+        let new_collateral = Dfinance::mint(new_collateral_amount);
+
+        let borrower_addr = Signer::address_of(&borrower_acc);
+        CDP::add_collateral<ETH, BTC>(&borrower_acc, borrower_addr, new_collateral);
+
+        // without additional collateral, this 80 ETH / BTC price will give margin call
+        let status = CDP::get_deal_status<ETH, BTC>(borrower_addr);
+        assert(status == 93, 1);
+    }
+}
+
+
+/// signers: 0x102
+/// price: eth_btc 10000000000
+/// current_time: 500
+script {
+    use 0x1::CDP;
+    use 0x1::Signer;
+    use 0x1::Dfinance;
+    use 0x1::Math::num;
+    use 0x1::Math;
+    use 0x1::Coins::{ETH, BTC};
+
+    fun pay_back_deal_partially(borrower_acc: signer) {
+        let loan_chunk_num = num(5, 0);  // 5 ETH
+        let loan_chunk_amount = Math::scale_to_decimals(loan_chunk_num, 18);
+        let loan_chunk = Dfinance::mint<ETH>(loan_chunk_amount);
+
+        let borrower_addr = Signer::address_of(&borrower_acc);
+        CDP::pay_back_partially<ETH, BTC>(&borrower_acc, borrower_addr, loan_chunk);
+
+        // without additional collateral, this 80 ETH / BTC price will give margin call
+        let loan_amount_num = CDP::get_loan_amount<ETH, BTC>(borrower_addr);
+        assert(Math::equals(loan_amount_num, num(68000178082191780805, 18)), 1);
+    }
+}

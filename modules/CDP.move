@@ -197,7 +197,8 @@ module CDP {
         assert(bank.is_active, ERR_BANK_IS_NOT_ACTIVE);
         assert(loan_term_in_days <= bank.max_loan_term_in_days, ERR_INCORRECT_LOAN_TERM);
 
-        let (loan_amount, _) = Math::num_unpack(copy loan_amount_num);
+        let offered_decimals = Dfinance::decimals<Offered>();
+        let loan_amount = Math::scale_to_decimals(copy loan_amount_num, offered_decimals);
         assert(loan_amount > 0, ERR_ZERO_AMOUNT);
         assert(
             Dfinance::value(&bank.deposit) >= loan_amount,
@@ -257,7 +258,8 @@ module CDP {
         let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
         let bank = borrow_global_mut<Bank<Offered, Collateral>>(deal.bank_owner_addr);
 
-        let (new_loan_amount, _) = Math::num_unpack(copy new_loan_amount_num);
+        let offered_decimals = Dfinance::decimals<Offered>();
+        let new_loan_amount = Math::scale_to_decimals(copy new_loan_amount_num, offered_decimals);
         assert(new_loan_amount > 0, ERR_ZERO_AMOUNT);
         assert(
             Dfinance::value(&bank.deposit) >= new_loan_amount,
@@ -295,7 +297,9 @@ module CDP {
         let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
         let loan_amount_with_interest_num = compute_loan_amount_with_interest(deal);
         let bank_owner_addr = deal.bank_owner_addr;
-        let (loan_amount_with_interest, _) = Math::num_unpack(copy loan_amount_with_interest_num);
+
+        let loan_amount_with_interest = Math::scale_to_decimals(
+            copy loan_amount_with_interest_num, Dfinance::decimals<Offered>());
 
         let offered_amount = Dfinance::value(&offered);
         assert(
@@ -356,9 +360,15 @@ module CDP {
 
         let loan_interest_num = Math::mul(loan_amount_num, interest_multiplier);
         let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
+
         let loan_interest_in_collateral_num = Math::div(loan_interest_num, price_num);
-        let (loan_interest_amount, _) = Math::num_unpack(loan_interest_in_collateral_num);
-        let interest_collateral = Dfinance::withdraw(&mut deal.collateral, loan_interest_amount);
+        let collateral_decimals = Dfinance::decimals<Collateral>();
+        let loan_interest_in_collateral_amount = Math::scale_to_decimals(
+            loan_interest_in_collateral_num,
+            collateral_decimals);
+
+        let interest_collateral = Dfinance::withdraw(
+            &mut deal.collateral, loan_interest_in_collateral_amount);
         deal.collect_interest_rate_from = Time::now();
         Event::emit(
             acc,
@@ -448,7 +458,9 @@ module CDP {
 
         let deal = move_from<Deal<Offered, Collateral>>(borrower_addr);
         let loan_amount_with_interest_num = compute_loan_amount_with_interest<Offered, Collateral>(&deal);
-        let (loan_amount_with_interest, _) = Math::num_unpack(copy loan_amount_with_interest_num);
+        let offered_decimals = Dfinance::decimals<Offered>();
+        let loan_amount_with_interest = Math::scale_to_decimals(
+            copy loan_amount_with_interest_num, offered_decimals);
         assert(
             Dfinance::value(&offered) == loan_amount_with_interest,
             ERR_INVALID_PAYBACK_AMOUNT
