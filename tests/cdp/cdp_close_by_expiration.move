@@ -29,7 +29,13 @@ script {
         // 0.10% (0010)
         let interest_rate = 10;
 
-        CDP::create_bank<ETH, BTC>(&owner_acc, eth_minted, bank_ltv, interest_rate);
+        CDP::create_bank<ETH, BTC>(
+            &owner_acc,
+            eth_minted,
+            bank_ltv,
+            interest_rate,
+            90
+        );
     }
 }
 
@@ -58,14 +64,15 @@ script {
         // LTV = (Offered / (Collateral * Price)) * 100%
         // Offered = LTV * Collateral * Price / 100%
         // num(6500, 2) * num(1, 10) * num(1572, 2) =
-        let amount_wanted_num = Math::mul(
+        let loan_amount_num = Math::mul(
             Math::mul(
                 num(65, 2), // 0.65
                 btc_num),
             num(1572, 2));  // 15.72 price
-        let amount_wanted = Math::scale_to_decimals(amount_wanted_num, 18); // 10.218 ETH
+//        let amount_wanted = Math::scale_to_decimals(amount_wanted_num, 18); // 10.218 ETH
 
-        let offered = CDP::create_deal(&borrower_acc, bank_address, btc_collateral, amount_wanted);
+        let offered = CDP::create_deal(
+            &borrower_acc, bank_address, btc_collateral, loan_amount_num, 1);
 
         let offered_num = num(Dfinance::value(&offered), 18);
         assert(Math::scale_to_decimals(offered_num, 3) == 10218, 1);  // 10.218 ETH
@@ -76,7 +83,7 @@ script {
 
 /// signers: 0x101
 /// price: eth_btc 1572000000
-/// current_time: 100
+/// current_time: 200
 /// aborts_with: 302
 script {
     use 0x1::CDP;

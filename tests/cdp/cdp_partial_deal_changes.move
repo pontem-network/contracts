@@ -26,7 +26,7 @@ script {
 
         let eth_minted = Dfinance::mint<ETH>(eth_amount);
         // 66%
-        let max_ltv = 6600;
+        let max_ltv = 7500;
         // 0.10% (0010)
         let interest_rate = 10;
 
@@ -104,8 +104,6 @@ script {
         assert(status == 93, 1);
 
         let loan_amount = CDP::get_loan_amount<ETH, BTC>(borrower_addr);
-        0x1::Debug::print(&loan_amount);
-
-        assert(Math::equals(loan_amount, num(1, 0)), 2);
+        assert(Math::equals(loan_amount, num(70000178082191780805, 18)), 2);
     }
 }
