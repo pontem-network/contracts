@@ -94,4 +94,15 @@ script {
     }
 }
 
-//
+/// signers: 0x101
+/// price: eth_btc 10000000000
+/// current_time: 100
+script {
+    use 0x1::CDP;
+    use 0x1::Coins::{ETH, BTC};
+
+    fun set_other_parameters(owner_acc: signer) {
+        CDP::set_interest_rate<ETH, BTC>(&owner_acc, 100);
+        CDP::set_max_loan_term<ETH, BTC>(&owner_acc, 10);
+    }
+}
