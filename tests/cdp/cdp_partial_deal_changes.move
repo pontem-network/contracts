@@ -10,7 +10,7 @@ script {
 }
 
 /// signers: 0x101
-/// price: eth_btc 1572000000
+/// price: eth_btc 10000000000
 script {
     use 0x1::Math;
     use 0x1::Math::num;
@@ -26,16 +26,22 @@ script {
 
         let eth_minted = Dfinance::mint<ETH>(eth_amount);
         // 66%
-        let bank_ltv = 6600;
+        let max_ltv = 6600;
         // 0.10% (0010)
         let interest_rate = 10;
 
-        CDP::create_bank<ETH, BTC>(&owner_acc, eth_minted, bank_ltv, interest_rate);
+        CDP::create_bank<ETH, BTC>(
+            &owner_acc,
+            eth_minted,
+            max_ltv,
+            interest_rate,
+            90
+        );
     }
 }
 
 /// signers: 0x102
-/// price: eth_btc 1572000000
+/// price: eth_btc 10000000000
 /// current_time: 100
 script {
     use 0x1::Account;
@@ -54,76 +60,52 @@ script {
 
         let btc_collateral = Dfinance::mint<BTC>(btc_amount);
 
-        // Exchange rate is 15.72 * 10^8 (8 decimal places) = 1572000000
-
         // LTV = (Offered / (Collateral * Price)) * 100%
         // Offered = LTV * Collateral * Price / 100%
-        // num(6500, 2) * num(1, 10) * num(1572, 2) =
+        // num(6500, 2) * num(1, 0) * num(100, 0) = 65 ETH
         let loan_amount_num = Math::mul(
             Math::mul(
                 num(65, 2), // 0.65
                 btc_num),
-            num(1572, 2));  // 15.72 price
+            num(100, 0));  // 100 ETH / BTC
+
         let offered = CDP::create_deal(
             &borrower_acc,
             bank_address,
             btc_collateral,
             loan_amount_num,
-            90
-        );
+            90);
 
         let offered_num = num(Dfinance::value(&offered), 18);
-        assert(Math::scale_to_decimals(offered_num, 3) == 10218, 1);  // 10.218 ETH
+        assert(Math::scale_to_decimals(offered_num, 0) == 65, 1);  // 65 ETH
 
         Account::deposit_to_account<ETH>(&borrower_acc, offered);
     }
 }
 
 /// signers: 0x102
-/// price: eth_btc 1372000000
-/// current_time: 400
+/// price: eth_btc 10000000000
+/// current_time: 200
 script {
     use 0x1::Account;
     use 0x1::CDP;
     use 0x1::Signer;
-    use 0x1::Dfinance;
-    use 0x1::Coins::{ETH, BTC};
-    use 0x1::Math;
     use 0x1::Math::num;
-
-    fun release_collateral_after_paying_back_the_loan(borrower_acc: signer) {
-        let borrower_addr = Signer::address_of(&borrower_acc);
-
-        let loan_amount_num = CDP::compute_loan_amount_with_interest<ETH, BTC>(deal);
-        let loan_amount = Math::value(&loan_amount_num);
-
-        let minted_eth_loan = Dfinance::mint<ETH>(loan_amount);
-        let collateral = CDP::pay_back<ETH, BTC>(&borrower_acc, borrower_addr, minted_eth_loan);
-
-        let expected_collateral_btc_num = num(1, 0);
-        assert(
-            Dfinance::value(&collateral) == Math::scale_to_decimals(expected_collateral_btc_num, 10),
-            10
-        );
-        Account::deposit_to_account(&borrower_acc, collateral);
-    }
-}
-
-/// signers: 0x102
-/// price: eth_btc 1372000000
-/// current_time: 400
-/// aborts_with: 303
-script {
-    use 0x1::Account;
-    use 0x1::CDP;
-    use 0x1::Signer;
-    use 0x1::Dfinance;
+    use 0x1::Math;
     use 0x1::Coins::{ETH, BTC};
 
-    fun release_collateral_after_paying_back_the_loan(borrower_acc: signer) {
+    fun borrow_5_more_eth(borrower_acc: signer) {
+        let new_loan_num = num(5, 0);
+        let eth = CDP::borrow_more<ETH, BTC>(&borrower_acc, new_loan_num);
+        Account::deposit_to_account<ETH>(&borrower_acc, eth);
+
         let borrower_addr = Signer::address_of(&borrower_acc);
-        let minted_eth_loan = Dfinance::mint<ETH>(10);
-        let collateral = CDP::pay_back<ETH, BTC>(&borrower_acc, borrower_addr, minted_eth_loan);
-        Account::deposit_to_account(&borrower_acc, collateral);
+        let status = CDP::get_deal_status<ETH, BTC>(borrower_addr);
+        assert(status == 93, 1);
+
+        let loan_amount = CDP::get_loan_amount<ETH, BTC>(borrower_addr);
+        0x1::Debug::print(&loan_amount);
+
+        assert(Math::equals(loan_amount, num(1, 0)), 2);
     }
 }
