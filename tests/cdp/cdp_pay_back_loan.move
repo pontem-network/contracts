@@ -108,22 +108,3 @@ script {
         Account::deposit_to_account(&borrower_acc, collateral);
     }
 }
-
-/// signers: 0x102
-/// price: eth_btc 1372000000
-/// current_time: 400
-/// aborts_with: 303
-script {
-    use 0x1::Account;
-    use 0x1::CDP;
-    use 0x1::Signer;
-    use 0x1::Dfinance;
-    use 0x1::Coins::{ETH, BTC};
-
-    fun release_collateral_after_paying_back_the_loan(borrower_acc: signer) {
-        let borrower_addr = Signer::address_of(&borrower_acc);
-        let minted_eth_loan = Dfinance::mint<ETH>(10);
-        let collateral = CDP::pay_back<ETH, BTC>(&borrower_acc, borrower_addr, minted_eth_loan);
-        Account::deposit_to_account(&borrower_acc, collateral);
-    }
-}
