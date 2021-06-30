@@ -12,14 +12,14 @@ module Account {
     const ERR_ZERO_DEPOSIT: u64 = 7;
 
     /// holds account data, currently, only events
-    struct T has key {}
+    resource struct T {}
 
-    struct Balance<Token> has key {
+    resource struct Balance<Token> {
         coin: Dfinance::T<Token>
     }
 
     /// Message for sent events
-    struct SentPaymentEvent has copy {
+    struct SentPaymentEvent {
         amount: u128,
         denom: vector<u8>,
         payee: address,
@@ -27,7 +27,7 @@ module Account {
     }
 
     /// Message for received events
-    struct ReceivedPaymentEvent has copy {
+    struct ReceivedPaymentEvent {
         amount: u128,
         denom: vector<u8>,
         payer: address,
@@ -35,11 +35,11 @@ module Account {
     }
 
     /// Init wallet for measurable currency, hence accept <Token> currency
-    public fun accept<Token: copy + store>(account: &signer) {
+    public fun accept<Token>(account: &signer) {
         move_to<Balance<Token>>(account, Balance { coin: Dfinance::zero<Token>() })
     }
 
-    public fun has_balance<Token: copy + store>(payee: address): bool {
+    public fun has_balance<Token>(payee: address): bool {
         exists<Balance<Token>>(payee)
     }
 
@@ -47,15 +47,15 @@ module Account {
         exists<T>(payee)
     }
 
-    public fun balance<Token: store + copy>(account: &signer): u128 acquires Balance {
+    public fun balance<Token>(account: &signer): u128 acquires Balance {
         balance_for<Token>(Signer::address_of(account))
     }
 
-    public fun balance_for<Token: store + copy>(addr: address): u128 acquires Balance {
+    public fun balance_for<Token>(addr: address): u128 acquires Balance {
         Dfinance::value(&borrow_global<Balance<Token>>(addr).coin)
     }
 
-    public fun deposit_to_account<Token: store + copy>(
+    public fun deposit_to_sender<Token>(
         account: &signer,
         to_deposit: Dfinance::T<Token>
     ) acquires Balance {
@@ -66,7 +66,7 @@ module Account {
         )
     }
 
-    public fun deposit<Token: store + copy>(
+    public fun deposit<Token>(
         account: &signer,
         payee: address,
         to_deposit: Dfinance::T<Token>
@@ -79,7 +79,7 @@ module Account {
         )
     }
 
-    public fun deposit_with_metadata<Token: store + copy>(
+    public fun deposit_with_metadata<Token>(
         account: &signer,
         payee: address,
         to_deposit: Dfinance::T<Token>,
@@ -93,7 +93,7 @@ module Account {
         )
     }
 
-    public fun pay_from_sender<Token: store + copy>(
+    public fun pay_from_sender<Token>(
         account: &signer,
         payee: address,
         amount: u128
@@ -103,7 +103,7 @@ module Account {
         )
     }
 
-    public fun pay_from_sender_with_metadata<Token: store + copy>(
+    public fun pay_from_sender_with_metadata<Token>(
         account: &signer,
         payee: address,
         amount: u128,
@@ -118,7 +118,7 @@ module Account {
         )
     }
 
-    fun deposit_with_sender_and_metadata<Token: store + copy>(
+    fun deposit_with_sender_and_metadata<Token>(
         sender: &signer,
         payee: address,
         to_deposit: Dfinance::T<Token>,
@@ -165,7 +165,7 @@ module Account {
         )
     }
 
-    public fun withdraw_from_sender<Token: store + copy>(
+    public fun withdraw_from_sender<Token>(
         account: &signer,
         amount: u128
     ): Dfinance::T<Token> acquires Balance {
@@ -174,11 +174,11 @@ module Account {
         withdraw_from_balance<Token>(balance, amount)
     }
 
-    fun withdraw_from_balance<Token: store + copy>(balance: &mut Balance<Token>, amount: u128): Dfinance::T<Token> {
+    fun withdraw_from_balance<Token>(balance: &mut Balance<Token>, amount: u128): Dfinance::T<Token> {
         Dfinance::withdraw(&mut balance.coin, amount)
     }
 
-    fun create_balance<Token: store + copy>(addr: address) {
+    fun create_balance<Token>(addr: address) {
         let sig = create_signer(addr);
 
         move_to<Balance<Token>>(&sig, Balance {
@@ -192,7 +192,7 @@ module Account {
     fun create_account(addr: address) {
         let sig = create_signer(addr);
 
-        move_to<T>(&sig, T {});
+        move_to<T>(&sig, T { });
 
         destroy_signer(sig);
     }

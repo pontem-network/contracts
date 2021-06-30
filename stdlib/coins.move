@@ -4,19 +4,19 @@ address 0x1 {
 /// officially supported by blockchain (or peg-zone specifically) is added here.
 /// Ideally this module should be auto-generated and rarely updated via consensus
 module Coins {
-    struct ETH has copy, store {}
-    struct BTC has copy, store {}
-    struct USDT has copy, store {}
+    struct ETH {}
+    struct BTC {}
+    struct USDT {}
 
-    struct Price<Curr1: store, Curr2: store> has key {
+    resource struct Price<Curr1, Curr2> {
         value: u128
     }
 
-    public fun get_price<Curr1: store, Curr2: store>(): u128 acquires Price {
+    public fun get_price<Curr1, Curr2>(): u128 acquires Price {
         borrow_global<Price<Curr1, Curr2>>(0x1).value
     }
 
-    public fun has_price<Curr1: store, Curr2: store>(): bool {
+    public fun has_price<Curr1, Curr2>(): bool {
         exists<Price<Curr1, Curr2>>(0x1)
     }
 }

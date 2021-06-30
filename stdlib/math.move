@@ -18,7 +18,7 @@ module Math {
 
     const ERR_MORE_THAN_18_DECIMALS: u64 = 401;
 
-    struct Num has copy, store, drop { value: u128, dec: u8 }
+    struct Num { value: u128, dec: u8 }
 
     public fun num(value: u128, dec: u8): Num {
         assert(

@@ -1,6 +1,6 @@
 [package]
 name = "contracts"
-dialect = "pont"
+dialect = "dfinance"
 
 dependencies = [
     { path = "./stdlib" }

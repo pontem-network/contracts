@@ -3,9 +3,9 @@ script {
     use 0x1::Dfinance;
     use 0x1::Coins::{ETH, BTC};
 
-    fun register_coins(std_acc: signer) {
-        Dfinance::register_coin<BTC>(&std_acc, b"btc", 10);
-        Dfinance::register_coin<ETH>(&std_acc, b"eth", 18);
+    fun register_coins(std_acc: &signer) {
+        Dfinance::register_coin<BTC>(std_acc, b"btc", 10);
+        Dfinance::register_coin<ETH>(std_acc, b"eth", 18);
     }
 }
 
@@ -18,7 +18,7 @@ script {
     use 0x1::Coins::{ETH, BTC};
     use 0x1::CDP;
 
-    fun mint_some_eth_and_create_bank_from_those_coins(owner_acc: signer) {
+    fun mint_some_eth_and_create_bank_from_those_coins(owner_acc: &signer) {
         // Eth is 100 * 10^18 (18 decimal places)
         let eth_amount_num = num(100, 0);
         let eth_amount = Math::scale_to_decimals(eth_amount_num, 18);
@@ -30,7 +30,7 @@ script {
         let interest_rate = 10;
 
         CDP::create_bank<ETH, BTC>(
-            &owner_acc,
+            owner_acc,
             eth_minted,
             bank_ltv,
             interest_rate,
@@ -50,7 +50,7 @@ script {
     use 0x1::Math::num;
     use 0x1::Coins::{BTC, ETH};
 
-    fun create_cdp_deal(borrower_acc: signer) {
+    fun create_cdp_deal(borrower_acc: &signer) {
         let bank_address = 0x101;
 
         // BTC collateral is 1 (= 15.72 ETH)
@@ -72,12 +72,12 @@ script {
 //        let amount_wanted = Math::scale_to_decimals(amount_wanted_num, 18); // 10.218 ETH
 
         let offered = CDP::create_deal(
-            &borrower_acc, bank_address, btc_collateral, loan_amount_num, 1);
+            borrower_acc, bank_address, btc_collateral, loan_amount_num, 1);
 
         let offered_num = num(Dfinance::value(&offered), 18);
         assert(Math::scale_to_decimals(offered_num, 3) == 10218, 1);  // 10.218 ETH
 
-        Account::deposit_to_account<ETH>(&borrower_acc, offered);
+        Account::deposit_to_sender<ETH>(borrower_acc, offered);
     }
 }
 
@@ -89,9 +89,9 @@ script {
     use 0x1::CDP;
     use 0x1::Coins::{ETH, BTC};
 
-    fun cannot_close_by_expiration_if_too_early(owner_acc: signer) {
+    fun cannot_close_by_expiration_if_too_early(owner_acc: &signer) {
         let borrower_addr = 0x102;
-        CDP::close_deal_by_termination_status<ETH, BTC>(&owner_acc, borrower_addr);
+        CDP::close_deal_by_termination_status<ETH, BTC>(owner_acc, borrower_addr);
     }
 }
 
@@ -104,16 +104,16 @@ script {
     use 0x1::CDP;
     use 0x1::Coins::{ETH, BTC};
 
-    fun close_deal_by_expiration(owner_acc: signer, borrower_acc: signer) {
+    fun close_deal_by_expiration(owner_acc: &signer, borrower_acc: &signer) {
         let borrower_addr = 0x102;
-        CDP::close_deal_by_termination_status<ETH, BTC>(&owner_acc, borrower_addr);
+        CDP::close_deal_by_termination_status<ETH, BTC>(owner_acc, borrower_addr);
 
         // Owner of Bank gets PRICE_OF_LOAN_IN_COLLATERAL_TOKEN = BORROWED_ETH / RATE_ETH_BTC
         // (10.218 ETH + 0.1% * (2 / 365) days * 10.218) / (11.72 ETH / BTC) ~= 0.87187 BTC
-        assert(Account::balance<BTC>(&owner_acc) == 8718477806, 90);
+        assert(Account::balance<BTC>(owner_acc) == 8718477806, 90);
         // Borrower gets remaining Collateral
         // 1.00 BTC - 0.87358 BTC ~= 0.12815 BTC
-        assert(Account::balance<BTC>(&borrower_acc) == 1281522194, 90);
+        assert(Account::balance<BTC>(borrower_acc) == 1281522194, 90);
     }
 }
 
@@ -125,8 +125,8 @@ script {
     use 0x1::CDP;
     use 0x1::Coins::{ETH, BTC};
 
-    fun deal_does_not_exist_after_closing_by_expiration(owner_acc: signer) {
+    fun deal_does_not_exist_after_closing_by_expiration(owner_acc: &signer) {
         let borrower_addr = 0x102;
-        CDP::close_deal_by_termination_status<ETH, BTC>(&owner_acc, borrower_addr);
+        CDP::close_deal_by_termination_status<ETH, BTC>(owner_acc, borrower_addr);
     }
 }

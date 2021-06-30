@@ -8,7 +8,7 @@ module Time {
     const ERR_INCORRECT_ARG : u64 = 101;
 
     /// A singleton resource holding the current Unix time in seconds
-    struct CurrentTimestamp has key {
+    resource struct CurrentTimestamp {
         seconds: u64,
     }
 

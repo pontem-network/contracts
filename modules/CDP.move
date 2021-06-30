@@ -39,7 +39,7 @@ module CDP {
     const ERR_DEAL_DOES_NOT_EXIST: u64 = 303;
     const ERR_INVALID_PAYBACK_AMOUNT: u64 = 303;
 
-    struct Bank<Offered: copy + store, Collateral: copy + store> has key {
+    resource struct Bank<Offered: copyable, Collateral: copyable> {
         deposit: Dfinance::T<Offered>,
 
         /// Loan-to-Value ratio: [0, 6600] (2 signs after comma)
@@ -54,7 +54,7 @@ module CDP {
         next_deal_id: u64,
     }
 
-    public fun create_bank<Offered: copy + store, Collateral: copy + store>(
+    public fun create_bank<Offered: copyable, Collateral: copyable>(
         owner_acc: &signer,
         deposit: Dfinance::T<Offered>,
         max_ltv: u64,
@@ -90,7 +90,7 @@ module CDP {
             });
     }
 
-    public fun add_deposit<Offered: copy + store, Collateral: copy + store>(
+    public fun add_deposit<Offered: copyable, Collateral: copyable>(
         _acc: &signer,
         bank_addr: address,
         deposit: Dfinance::T<Offered>,
@@ -104,7 +104,7 @@ module CDP {
         Dfinance::deposit(&mut bank.deposit, deposit);
     }
 
-    public fun withdraw_deposit<Offered: copy + store, Collateral: copy + store>(
+    public fun withdraw_deposit<Offered: copyable, Collateral: copyable>(
         owner_acc: &signer,
         amount: u128,
     ): Dfinance::T<Offered> acquires Bank {
@@ -123,7 +123,7 @@ module CDP {
         Dfinance::withdraw(&mut bank.deposit, amount)
     }
 
-    public fun set_interest_rate<Offered: copy + store, Collateral: copy + store>(
+    public fun set_interest_rate<Offered: copyable, Collateral: copyable>(
         owner_acc: &signer,
         interest_rate_per_year: u64,
     ) acquires Bank {
@@ -141,7 +141,7 @@ module CDP {
         bank.interest_rate_per_year = interest_rate_per_year
     }
 
-    public fun set_max_loan_term<Offered: copy + store, Collateral: copy + store>(
+    public fun set_max_loan_term<Offered: copyable, Collateral: copyable>(
         owner_acc: &signer,
         max_loan_term_in_days: u64,
     ) acquires Bank {
@@ -156,7 +156,7 @@ module CDP {
         bank.max_loan_term_in_days = max_loan_term_in_days;
     }
 
-    public fun set_is_active<Offered: copy + store, Collateral: copy + store>(
+    public fun set_is_active<Offered: copyable, Collateral: copyable>(
         owner_acc: &signer,
         is_active: bool,
     ) acquires Bank {
@@ -170,7 +170,7 @@ module CDP {
         bank.is_active = is_active;
     }
 
-    struct Deal<Offered: copy + store, Collateral: copy + store> has key {
+    resource struct Deal<Offered: copyable, Collateral: copyable> {
         deal_id: u64,
         bank_owner_addr: address,
         loan_amount_num: Math::Num,
@@ -181,7 +181,7 @@ module CDP {
         interest_rate_per_year: u64,
     }
 
-    public fun create_deal<Offered: copy + store, Collateral: copy + store>(
+    public fun create_deal<Offered: copyable, Collateral: copyable>(
         borrower_acc: &signer,
         bank_addr: address,
         collateral: Dfinance::T<Collateral>,
@@ -248,7 +248,7 @@ module CDP {
         offered
     }
 
-    public fun borrow_more<Offered: copy + store, Collateral: copy + store>(
+    public fun borrow_more<Offered: copyable, Collateral: copyable>(
         borrower_acc: &signer,
         new_loan_amount_num: Math::Num
     ): Dfinance::T<Offered> acquires Deal, Bank {
@@ -287,7 +287,7 @@ module CDP {
         offered
     }
 
-    public fun pay_back_partially<Offered: copy + store, Collateral: copy + store>(
+    public fun pay_back_partially<Offered: copyable, Collateral: copyable>(
         acc: &signer,
         borrower_addr: address,
         offered: Dfinance::T<Offered>
@@ -325,7 +325,7 @@ module CDP {
             });
     }
 
-    public fun add_collateral<Offered: copy + store, Collateral: copy + store>(
+    public fun add_collateral<Offered: copyable, Collateral: copyable>(
         acc: &signer,
         borrower_addr: address,
         collateral: Dfinance::T<Collateral>
@@ -345,7 +345,7 @@ module CDP {
             });
     }
 
-    public fun collect_interest_rate<Offered: copy + store, Collateral: copy + store>(
+    public fun collect_interest_rate<Offered: copyable, Collateral: copyable>(
         acc: &signer,
         borrower_addr: address,
     ): Dfinance::T<Collateral> acquires Deal {
@@ -382,7 +382,7 @@ module CDP {
         interest_collateral
     }
 
-    public fun close_deal_by_termination_status<Offered: copy + store, Collateral: copy + store>(
+    public fun close_deal_by_termination_status<Offered: copyable, Collateral: copyable>(
         acc: &signer,
         borrower_addr: address
     ) acquires Deal, Bank {
@@ -449,7 +449,7 @@ module CDP {
             })
     }
 
-    public fun pay_back<Offered: copy + store, Collateral: copy + store>(
+    public fun pay_back<Offered: copyable, Collateral: copyable>(
         acc: &signer,
         borrower_addr: address,
         offered: Dfinance::T<Offered>,
@@ -489,14 +489,14 @@ module CDP {
         collateral
     }
 
-    public fun get_loan_amount<Offered: copy + store, Collateral: copy + store>(
+    public fun get_loan_amount<Offered: copyable, Collateral: copyable>(
         borrower_addr: address
     ): Math::Num acquires Deal {
         let deal = borrow_global<Deal<Offered, Collateral>>(borrower_addr);
         compute_loan_amount_with_interest(deal)
     }
 
-    public fun get_deal_status<Offered: copy + store, Collateral: copy + store>(
+    public fun get_deal_status<Offered: copyable, Collateral: copyable>(
         borrower_addr: address
     ): u8 acquires Deal {
         let deal = borrow_global<Deal<Offered, Collateral>>(borrower_addr);
@@ -523,7 +523,7 @@ module CDP {
         STATUS_VALID_CDP
     }
 
-    fun compute_loan_amount_with_interest<Offered: copy + store, Collateral: copy + store>(
+    fun compute_loan_amount_with_interest<Offered: copyable, Collateral: copyable>(
         deal: &Deal<Offered, Collateral>,
     ): Math::Num {
         let interest_multiplier = compute_interest_rate_multiplier(deal);
@@ -536,7 +536,7 @@ module CDP {
         offered_with_interest_num
     }
 
-    fun compute_interest_rate_multiplier<Offered: copy + store, Collateral: copy + store>(
+    fun compute_interest_rate_multiplier<Offered: copyable, Collateral: copyable>(
         deal: &Deal<Offered, Collateral>
     ): Math::Num {
         let deal_just_created = deal.created_at
@@ -554,7 +554,7 @@ module CDP {
         Math::mul(offered_num, hard_mc_multiplier)
     }
 
-    fun compute_ltv<Offered: copy + store, Collateral: copy + store>(
+    fun compute_ltv<Offered: copyable, Collateral: copyable>(
         collateral_amount: u128,
         loan_amount_num: Math::Num
     ): u64 {
@@ -576,7 +576,7 @@ module CDP {
         < Math::scale_to_decimals(r, 18)
     }
 
-    struct BankCreatedEvent<Offered: copy + store, Collateral: copy + store> has copy {
+    struct BankCreatedEvent<Offered: copyable, Collateral: copyable> {
         owner: address,
         deposit_amount: u128,
         max_ltv: u64,
@@ -584,27 +584,27 @@ module CDP {
         max_loan_term_in_days: u64,
     }
 
-    struct BankUpdatedDepositAmountEvent<Offered: copy + store, Collateral: copy + store> has copy {
+    struct BankUpdatedDepositAmountEvent<Offered: copyable, Collateral: copyable> {
         owner: address,
         new_deposit_amount: u128,
     }
 
-    struct BankUpdatedInterestRateEvent<Offered: copy + store, Collateral: copy + store> has copy {
+    struct BankUpdatedInterestRateEvent<Offered: copyable, Collateral: copyable> {
         owner: address,
         new_interest_rate: u64,
     }
 
-    struct BankUpdatedLoanTermEvent<Offered: copy + store, Collateral: copy + store> has copy {
+    struct BankUpdatedLoanTermEvent<Offered: copyable, Collateral: copyable> {
         owner: address,
         new_loan_term: u64,
     }
 
-    struct BankChangeActiveStatus<Offered: copy + store, Collateral: copy + store> has copy {
+    struct BankChangeActiveStatus<Offered: copyable, Collateral: copyable> {
         owner: address,
         is_active: bool
     }
 
-    struct DealCreatedEvent<Offered: copy + store, Collateral: copy + store> has copy {
+    struct DealCreatedEvent<Offered: copyable, Collateral: copyable> {
         borrower_addr: address,
         bank_owner_addr: address,
         deal_id: u64,
@@ -614,35 +614,35 @@ module CDP {
         interest_rate_per_year: u64,
     }
 
-    struct DealBorrowedMoreEvent<Offered: copy + store, Collateral: copy + store> has copy {
+    struct DealBorrowedMoreEvent<Offered: copyable, Collateral: copyable> {
         borrower_addr: address,
         bank_owner_addr: address,
         deal_id: u64,
         new_loan_amount: u128,
     }
 
-    struct DealPartiallyRepaidEvent<Offered: copy + store, Collateral: copy + store> has copy {
+    struct DealPartiallyRepaidEvent<Offered: copyable, Collateral: copyable> {
         borrower_addr: address,
         bank_owner_addr: address,
         deal_id: u64,
         repaid_loan_amount: u128,
     }
 
-    struct DealCollateralAddedEvent<Offered: copy + store, Collateral: copy + store> has copy {
+    struct DealCollateralAddedEvent<Offered: copyable, Collateral: copyable> {
         borrower_addr: address,
         bank_owner_addr: address,
         deal_id: u64,
         collateral_added_amount: u128
     }
 
-    struct DealInterestCollectedEvent<Offered: copy + store, Collateral: copy + store> has copy {
+    struct DealInterestCollectedEvent<Offered: copyable, Collateral: copyable> {
         borrower_addr: address,
         bank_owner_addr: address,
         deal_id: u64,
         interest_collateral_amount: u128,
     }
 
-    struct DealTerminatedEvent<Offered: copy + store, Collateral: copy + store> has copy {
+    struct DealTerminatedEvent<Offered: copyable, Collateral: copyable> {
         borrower_addr: address,
         bank_owner_addr: address,
         deal_id: u64,
@@ -652,7 +652,7 @@ module CDP {
         termination_status: u8,
     }
 
-    struct DealPaidBackEvent<Offered: copy + store, Collateral: copy + store> has copy {
+    struct DealPaidBackEvent<Offered: copyable, Collateral: copyable> {
         borrower_addr: address,
         bank_owner_addr: address,
         deal_id: u64,
