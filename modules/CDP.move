@@ -125,7 +125,7 @@ module CDP {
             Dfinance::value(&bank.deposit) >= amount,
             ERR_BANK_DOES_NOT_HAVE_ENOUGH_COINS
         );
-        let withdrawn = Dfinance::withdraw( &mut bank.deposit, amount);
+        let withdrawn = Dfinance::withdraw(&mut bank.deposit, amount);
         Event::emit(
             owner_acc,
             BankUpdatedDepositAmountEvent<Offered, Collateral> {
@@ -200,6 +200,7 @@ module CDP {
         loan_amount_num: Math::Num,
         collateral: Dfinance::T<Collateral>,
         created_at: u64,
+        // 0 means that created_at should be used
         collect_interest_rate_from: u64,
         loan_term_in_days: u64,
         interest_rate_per_year: u64,
@@ -239,7 +240,7 @@ module CDP {
             collateral,
             loan_amount_num: copy loan_amount_num,
             created_at: Time::now(),
-            collect_interest_rate_from: Time::now(),
+            collect_interest_rate_from: 0,
             interest_rate_per_year,
             loan_term_in_days,
         };
@@ -563,9 +564,11 @@ module CDP {
     fun compute_interest_rate_multiplier<Offered: copyable, Collateral: copyable>(
         deal: &Deal<Offered, Collateral>
     ): Math::Num {
-        let deal_just_created = deal.created_at
-                                == deal.collect_interest_rate_from;
-        let days_passed = Time::days_from(deal.collect_interest_rate_from) + (if (deal_just_created) 1 else 0);
+        let zero_day_interest_collected = deal.collect_interest_rate_from != 0;
+        let collect_interest_rate_from =
+            if (zero_day_interest_collected) deal.collect_interest_rate_from else deal.created_at;
+        let days_passed =
+            Time::days_from(collect_interest_rate_from) + (if (!zero_day_interest_collected) 1 else 0);
         let days_passed_num = num((days_passed as u128), 0);
         let interest_rate_num = num((deal.interest_rate_per_year as u128), INTEREST_RATE_DECIMALS);
         let days_in_year = num(365, 0);
