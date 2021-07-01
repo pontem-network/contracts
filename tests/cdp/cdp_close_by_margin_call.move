@@ -11,6 +11,7 @@ script {
 
 /// signers: 0x101
 /// price: eth_btc 10000000000
+/// current_time: 100
 script {
     use 0x1::Math;
     use 0x1::Math::num;

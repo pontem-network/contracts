@@ -91,7 +91,7 @@ module CDP {
     }
 
     public fun add_deposit<Offered: copyable, Collateral: copyable>(
-        _acc: &signer,
+        acc: &signer,
         bank_addr: address,
         deposit: Dfinance::T<Offered>,
     ) acquires Bank {
@@ -102,6 +102,12 @@ module CDP {
 
         let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
         Dfinance::deposit(&mut bank.deposit, deposit);
+        Event::emit(
+            acc,
+            BankUpdatedDepositAmountEvent<Offered, Collateral> {
+                owner: bank_addr,
+                new_deposit_amount: Dfinance::value(&bank.deposit)
+            });
     }
 
     public fun withdraw_deposit<Offered: copyable, Collateral: copyable>(
@@ -119,8 +125,14 @@ module CDP {
             Dfinance::value(&bank.deposit) >= amount,
             ERR_BANK_DOES_NOT_HAVE_ENOUGH_COINS
         );
-
-        Dfinance::withdraw(&mut bank.deposit, amount)
+        let withdrawn = Dfinance::withdraw( &mut bank.deposit, amount);
+        Event::emit(
+            owner_acc,
+            BankUpdatedDepositAmountEvent<Offered, Collateral> {
+                owner: bank_addr,
+                new_deposit_amount: Dfinance::value(&bank.deposit)
+            });
+        withdrawn
     }
 
     public fun set_interest_rate<Offered: copyable, Collateral: copyable>(
@@ -138,7 +150,13 @@ module CDP {
         );
 
         let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
-        bank.interest_rate_per_year = interest_rate_per_year
+        bank.interest_rate_per_year = interest_rate_per_year;
+        Event::emit(
+            owner_acc,
+            BankUpdatedInterestRateEvent<Offered, Collateral> {
+                owner: bank_addr,
+                new_interest_rate: interest_rate_per_year
+            })
     }
 
     public fun set_max_loan_term<Offered: copyable, Collateral: copyable>(
@@ -154,6 +172,12 @@ module CDP {
 
         let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
         bank.max_loan_term_in_days = max_loan_term_in_days;
+        Event::emit(
+            owner_acc,
+            BankUpdatedLoanTermEvent<Offered, Collateral> {
+                owner: bank_addr,
+                new_max_loan_term: max_loan_term_in_days,
+            });
     }
 
     public fun set_is_active<Offered: copyable, Collateral: copyable>(
@@ -572,8 +596,7 @@ module CDP {
     }
 
     fun math_lt(l: Math::Num, r: Math::Num): bool {
-        Math::scale_to_decimals(l, 18)
-        < Math::scale_to_decimals(r, 18)
+        Math::scale_to_decimals(l, 18) < Math::scale_to_decimals(r, 18)
     }
 
     struct BankCreatedEvent<Offered: copyable, Collateral: copyable> {
@@ -596,7 +619,7 @@ module CDP {
 
     struct BankUpdatedLoanTermEvent<Offered: copyable, Collateral: copyable> {
         owner: address,
-        new_loan_term: u64,
+        new_max_loan_term: u64,
     }
 
     struct BankChangeActiveStatus<Offered: copyable, Collateral: copyable> {

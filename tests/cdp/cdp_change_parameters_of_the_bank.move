@@ -11,6 +11,7 @@ script {
 
 /// signers: 0x101
 /// price: eth_btc 10000000000
+/// current_time: 100
 script {
     use 0x1::Math;
     use 0x1::Math::num;
@@ -40,7 +41,53 @@ script {
     }
 }
 
+
+/// signers: 0x103
+/// price: eth_btc 10000000000
+/// current_time: 100
+script {
+    use 0x1::Math;
+    use 0x1::Math::num;
+    use 0x1::Dfinance;
+    use 0x1::Coins::{ETH, BTC};
+
+    use 0x1::CDP;
+
+    fun add_some_more_eth_to_bank(acc: &signer) {
+        // Eth is 100 * 10^18 (18 decimal places)
+        let eth_amount_num = num(10, 0);
+        let eth_amount = Math::scale_to_decimals(eth_amount_num, 18);
+        let eth_minted = Dfinance::mint<ETH>(eth_amount);
+
+        let bank_addr = 0x101;
+        CDP::add_deposit<ETH, BTC>(acc, bank_addr, eth_minted);
+    }
+}
+
+/// signers: 0x101
+/// price: eth_btc 10000000000
+/// current_time: 100
+script {
+    use 0x1::Account;
+    use 0x1::Math;
+    use 0x1::Signer;
+    use 0x1::Math::num;
+    use 0x1::Coins::{ETH, BTC};
+
+    use 0x1::CDP;
+
+    fun withdraw_some_eth_from_bank(owner_acc: &signer) {
+        // Eth is 100 * 10^18 (18 decimal places)
+        let eth_amount_num = num(10, 0);
+        let eth_amount = Math::scale_to_decimals(eth_amount_num, 18);
+
+        let withdrawn = CDP::withdraw_deposit<ETH, BTC>(owner_acc, eth_amount);
+        Account::deposit(owner_acc, Signer::address_of(owner_acc), withdrawn);
+    }
+}
+
 /// signers: 0x101, 0x102
+/// current_time: 100
 /// aborts_with: 105
 script {
     use 0x1::Account;
