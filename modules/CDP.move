@@ -1,753 +1,689 @@
 address 0x1 {
-
-/// Every deal has two generic params:
-///
-/// - Offered - the offered currency which user would get in
-/// exchange for Collateral
-///
-/// - Collateral - currency to put into deal which will not be
-/// accessible until Offered is returned
 module CDP {
-    use 0x1::Coins;
-    use 0x1::Dfinance;
-    use 0x1::Security::{Self, Security};
     use 0x1::Account;
+    use 0x1::Pontem;
     use 0x1::Signer;
-    use 0x1::Vector;
     use 0x1::Event;
+    use 0x1::Coins;
     use 0x1::Time;
-    use 0x1::Math::{Self, num};
+    use 0x1::Math;
+    use 0x1::Math::num;
 
-    const MAX_LTV: u64 = 6600;  // 66.00%
-    const SOFT_MARGIN_CALL: u128 = 150;
+    const GLOBAL_MAX_LTV: u64 = 8500;  // 85.00%
+    const GLOBAL_MAX_INTEREST_RATE: u64 = 10000;  // 100.00%
     const HARD_MARGIN_CALL: u128 = 130;
+
+    const STATUS_HARD_MC: u8 = 91;
+    const STATUS_EXPIRED: u8 = 92;
+    const STATUS_VALID_CDP: u8 = 93;
+
     const EXCHANGE_RATE_DECIMALS: u8 = 8;
-    const LTV_100_PERCENT: u64 = 10000;
-
-    const LTV_DECIMALS: u8 = 2;
     const INTEREST_RATE_DECIMALS: u8 = 4;
-
-    // 10^18
-    const MAX_ACCURACY_DIVISION_MULTIPLIER: u128 = 1000000000000000000;
+    const MARGIN_CALL_DECIMALS: u8 = 2;
 
     // offer creation constants start with 100
-    const ERR_INCORRECT_LTV: u64 = 101;
+    const ERR_BANK_DOES_NOT_EXIST: u64 = 101;
     const ERR_NO_ORACLE_PRICE: u64 = 102;
-    const ERR_ZERO_DRO_GATE: u64 = 103;
-    const ERR_OFFER_DOES_NOT_EXIST: u64 = 104;
+    const ERR_INCORRECT_LTV: u64 = 103;
+    const ERR_INCORRECT_LOAN_TERM: u64 = 1035;
+    const ERR_INCORRECT_INTEREST_RATE: u64 = 104;
+    const ERR_BANK_IS_NOT_ACTIVE: u64 = 105;
+    const ERR_BANK_DOES_NOT_HAVE_ENOUGH_COINS: u64 = 106;
+
+    const ERR_ZERO_AMOUNT: u64 = 201;
+    const ERR_ZERO_COLLATERAL: u64 = 201;
 
     // deal close params
     const ERR_HARD_MC_HAS_OCCURRED: u64 = 301;
     const ERR_HARD_MC_HAS_NOT_OCCURRED_OR_NOT_EXPIRED: u64 = 302;
     const ERR_DEAL_DOES_NOT_EXIST: u64 = 303;
-    const ERR_NOT_ENOUGH_MONEY: u64 = 304;
-    const ERR_DEAL_NOT_EXPIRED: u64 = 305;
+    const ERR_INVALID_PAYBACK_AMOUNT: u64 = 303;
 
-    const ERR_ZERO_AMOUNT: u64 = 201;
+    resource struct Bank<Offered: copyable, Collateral: copyable> {
+        deposit: Pontem::T<Offered>,
 
-    const ERR_SECURITY_DOES_NOT_EXIST: u64 = 11;
-    const ERR_OFFER_INACTIVE: u64 = 201;
-    const ERR_CANT_WITHDRAW: u64 = 200;
-
-    // deal statuses
-    const STATUS_DEAL_OKAY: u8 = 1;
-    const STATUS_SOFT_MC_REACHED: u8 = 2;
-    const STATUS_HARD_MC_REACHED: u8 = 3;
-    const STATUS_EXPIRED: u8 = 4;
-
-    const REASON_MC: u8 = 1;
-    const REASON_TIME: u8 = 2;
-
-    resource struct Offer<Offered: copyable, Collateral: copyable> {
-        deposit: Dfinance::T<Offered>,
-        collateral: Dfinance::T<Collateral>,
-        proofs: vector<Security::Proof>,
-        // ID COUNTER
-        deals_made: u64,
-        deals: vector<Deal<Offered, Collateral>>,
-        deal_duration: u64,
-        // whether Offer is available for deals
+        /// Loan-to-Value ratio: [0, 6600] (2 signs after comma)
+        max_ltv: u64,
+        /// loan interest rate: [0, 10000] (2 signs after comma)
+        interest_rate_per_year: u64,
+        /// whether this bank can be used for new cdp deals
         is_active: bool,
 
-        // < 6700, 2 signs after comma
-        min_ltv: u64,
-        // 2 signs after comma
-        interest_rate: u64,
-        // whether to allow issuing new coins
-        allow_dro: bool,
-
-        // how much time DRO owner has until deal can be
-        // liquidated by lender
-        dro_buy_gate: u64,
+        max_loan_term_in_days: u64,
+        active_deals_count: u64,
+        next_deal_id: u64,
     }
 
-    struct Deal<Offered: copyable, Collateral: copyable> {
-        id: u64,
-        ltv: u64,
-        soft_mc: u128,
-        hard_mc: u128,
-        allow_dro: bool,
-        ends_at: u64,
-        created_at: u64,
-        interest_rate: u64,
-        offered_amt: u128,
-        collateral_amt: u128,
-    }
-
-    /// Marker for CDP Security to use in `For` generic
-    struct CDP<Offered: copyable, Collateral: copyable> {
-        lender: address,
-        deal_id: u64
-    }
-
-    /// Marker for DRO Security to use in `For` generic
-    struct DRO<Offered: copyable, Collateral: copyable> {
-        lender: address,
-        deal_id: u64
-    }
-
-    /// Get lender and deal_id from CDP.
-    /// ```
-    /// let sec = ...; // get security somehow
-    /// let cdp = Security::borrow(sec);
-    /// let (lender, deal_id) = CDP::read_security(cdp);
-    /// ```
-    public fun read_security<Offered: copyable, Collateral: copyable>(
-        cdp: &CDP<Offered, Collateral>
-    ): (address, u64) {
-        (
-            cdp.lender,
-            cdp.deal_id
-        )
-    }
-
-    /// Check whether <address> has an offer
-    public fun has_offer<Offered: copyable, Collateral: copyable>(lender: address): bool {
-        exists<Offer<Offered, Collateral>>(lender)
-    }
-
-    /// Read details from existing offer:
-    /// - deposit amount
-    /// - min ltv,
-    /// - interest_rate
-    /// - is_active
-    /// - allow_dro
-    /// - dro_buy_gate (is allowed)
-    public fun get_offer_details<Offered: copyable, Collateral: copyable>(
-        lender: address
-    ): (u128, u64, u64, bool, bool, u64) acquires Offer {
-        let off = borrow_global<Offer<Offered, Collateral>>(lender);
-
-        (
-            Dfinance::value(&off.deposit),
-            off.min_ltv,
-            off.interest_rate,
-            off.is_active,
-            off.allow_dro,
-            off.dro_buy_gate
-        )
-    }
-
-    /// Create an Offer disallowing DRO
-    public fun create_offer_without_dro<Offered: copyable, Collateral: copyable>(
-        account: &signer,
-        to_deposit: Dfinance::T<Offered>,
-        min_ltv: u64,
-        interest_rate: u64,
-        deal_duration: u64
+    public fun create_bank<Offered: copyable, Collateral: copyable>(
+        owner_acc: &signer,
+        deposit: Pontem::T<Offered>,
+        max_ltv: u64,
+        interest_rate_per_year: u64,
+        max_loan_term_in_days: u64,
     ) {
-        create_offer<Offered, Collateral>(
-            account,
-            to_deposit,
-            min_ltv,
-            interest_rate,
-            deal_duration,
-            false,
-            0
-        )
-    }
+        assert(Coins::has_price<Offered, Collateral>(), ERR_NO_ORACLE_PRICE);
+        assert(0u64 < max_ltv && max_ltv <= GLOBAL_MAX_LTV, ERR_INCORRECT_LTV);
+        assert(interest_rate_per_year <= GLOBAL_MAX_INTEREST_RATE, ERR_INCORRECT_INTEREST_RATE);
 
-    /// Create an Offer by depositing some amount of Offered currency.
-    /// After that anyone can make a deal in given currency pair and put his
-    /// Collateral for Offered.
-    public fun create_offer<Offered: copyable, Collateral: copyable>(
-        account: &signer,
-        to_deposit: Dfinance::T<Offered>,
-        min_ltv: u64,
-        interest_rate: u64,
-        deal_duration: u64,
-        allow_dro: bool,
-        dro_buy_gate: u64,
-    ) {
-        assert(min_ltv < MAX_LTV, ERR_INCORRECT_LTV);
-        assert(Coins::has_price<Collateral, Offered>(), ERR_NO_ORACLE_PRICE);
-        assert(allow_dro == false || dro_buy_gate > 0, ERR_ZERO_DRO_GATE);
+        let deposit_amount = Pontem::value(&deposit);
 
-        let deposit_amt = Dfinance::value(&to_deposit);
+        let bank =
+            Bank<Offered, Collateral> {
+                deposit,
+                max_ltv,
+                interest_rate_per_year,
+                is_active: true,
+                max_loan_term_in_days,
+                active_deals_count: 0,
+                next_deal_id: 1
+            };
+        move_to(owner_acc, bank);
 
-        move_to(account, Offer<Offered, Collateral> {
-            deposit: to_deposit,
-            collateral: Dfinance::zero<Collateral>(),
-            proofs: Vector::empty<Security::Proof>(),
-            deals: Vector::empty<Deal<Offered, Collateral>>(),
-            deals_made: 0,
-            is_active: true,
-            min_ltv,
-            allow_dro,
-            interest_rate,
-            deal_duration,
-            dro_buy_gate
-        });
-
-        Event::emit(account, OfferCreatedEvent<Offered, Collateral> {
-            lender: Signer::address_of(account),
-            deposit_amt,
-            min_ltv,
-            interest_rate,
-            allow_dro,
-            deal_duration,
-            dro_buy_gate
-        });
-    }
-
-    /// Turn Offer into inactive status
-    public fun deactivate_offer<Offered: copyable, Collateral: copyable>(
-        account: &signer
-    ) acquires Offer {
-        let lender = Signer::address_of(account);
-        assert(
-            exists<Offer<Offered, Collateral>>(lender),
-            ERR_OFFER_DOES_NOT_EXIST
-        );
-        let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-
-        offer.is_active = false;
-
-        Event::emit(account, OfferDeactivatedEvent<Offered, Collateral> {
-            lender
-        });
-    }
-
-    /// Activate Offer
-    public fun activate_offer<Offered: copyable, Collateral: copyable>(
-        account: &signer
-    ) acquires Offer {
-        let lender = Signer::address_of(account);
-        assert(
-            exists<Offer<Offered, Collateral>>(lender),
-            ERR_OFFER_DOES_NOT_EXIST
-        );
-        let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-
-        offer.is_active = true;
-
-        Event::emit(account, OfferActivatedEvent<Offered, Collateral> {
-            lender
-        });
-    }
-
-    /// Deposit additional assets into the Offer.
-    /// Anyone can deposit to any Offer except that he won't get anything
-    /// in return for his investment.
-    public fun deposit<Offered: copyable, Collateral: copyable>(
-        account: &signer,
-        lender: address,
-        to_deposit: Dfinance::T<Offered>
-    ) acquires Offer {
-        assert(
-            exists<Offer<Offered, Collateral>>(lender),
-            ERR_OFFER_DOES_NOT_EXIST
-        );
-        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let deposit_amt = Dfinance::value(&to_deposit);
-
-        Dfinance::deposit<Offered>(&mut offer.deposit, to_deposit);
-
-        Event::emit(account, OfferDepositedEvent<Offered, Collateral> {
-            deposit_amt,
-            lender,
-        });
-    }
-
-    /// Withdraw some amount from Offer, only owner can do it
-    public fun withdraw<Offered: copyable, Collateral: copyable>(
-        account: &signer,
-        withdraw_amt: u128
-    ): Dfinance::T<Offered> acquires Offer {
-        let lender = Signer::address_of(account);
-        assert(
-            exists<Offer<Offered, Collateral>>(lender),
-            ERR_OFFER_DOES_NOT_EXIST
-        );
-        let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-
-        assert(withdraw_amt <= Dfinance::value(&offer.deposit), ERR_CANT_WITHDRAW);
-
-        Event::emit(account, OfferWithdrawalEvent<Offered, Collateral> {
-            withdraw_amt,
-            lender
-        });
-
-        Dfinance::withdraw(&mut offer.deposit, withdraw_amt)
-    }
-
-    /// Withdraw whole deposit from Offer, only owner can do it
-    public fun withdraw_all<Offered: copyable, Collateral: copyable>(
-        account: &signer,
-    ): Dfinance::T<Offered> acquires Offer {
-        let lender = Signer::address_of(account);
-        assert(
-            exists<Offer<Offered, Collateral>>(lender),
-            ERR_OFFER_DOES_NOT_EXIST
-        );
-        let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-
-        let withdraw_amt = Dfinance::value(&offer.deposit);
-
-        Event::emit(account, OfferWithdrawalEvent<Offered, Collateral> {
-            withdraw_amt,
-            lender
-        });
-
-        Dfinance::withdraw(&mut offer.deposit, withdraw_amt)
-    }
-
-    /// Make deal with existing Offer (or Bank). Ask for some amount
-    /// of Offered currency. If LTV for this amount/collateral is less
-    /// than MIN and MAX LTV settings, deal will be make
-    public fun make_deal<Offered: copyable, Collateral: copyable>(
-        account: &signer,
-        lender: address,
-        collateral: Dfinance::T<Collateral>,
-        amount_wanted: u128,
-    ): (Dfinance::T<Offered>, Security<CDP<Offered, Collateral>>) acquires Offer {
-        assert(
-            exists<Offer<Offered, Collateral>>(lender),
-            ERR_OFFER_DOES_NOT_EXIST
-        );
-
-        let price = num(Coins::get_price<Collateral, Offered>(), EXCHANGE_RATE_DECIMALS);
-
-        let offered_dec    = Dfinance::decimals<Offered>();
-        let collateral_dec = Dfinance::decimals<Collateral>();
-        let collateral_amt = Dfinance::value(&collateral);
-
-        assert(amount_wanted > 0, ERR_ZERO_AMOUNT);
-        assert(collateral_amt > 0, ERR_ZERO_AMOUNT);
-
-        // MAX OFFER in Offered (1to1) = COLL_AMT * COLL_OFF_PRICE;
-        let max_offer = {
-            let coll    = num(collateral_amt, collateral_dec);
-            let max_off = Math::mul(coll, copy price);
-
-            max_off
-        };
-
-        let wanted_num = num(amount_wanted, offered_dec);
-
-        // LTV = WANTED / MAX * 100; 2 decimals
-        let ltv = {
-            let ltv_perc = Math::div(copy wanted_num, max_offer);
-            let ltv_perc = Math::scale_to_decimals(ltv_perc, 2);
-
-            ((ltv_perc * 100) as u64)
-        };
-
-        let (soft_mc, hard_mc) = compute_margin_calls(wanted_num);
-
-        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let min_ltv = offer.min_ltv;
-        let interest_rate = offer.interest_rate;
-
-        assert(offer.is_active, ERR_OFFER_INACTIVE);
-        assert(ltv >= min_ltv && ltv <= MAX_LTV, ERR_INCORRECT_LTV); // Offer LTV = MIN LTV
-
-        let offered = Dfinance::withdraw<Offered>(&mut offer.deposit, amount_wanted);
-        let deal_id = offer.deals_made;
-
-        // Issue Security for this deal which will hold the deal params in it
-        let (security, proof) = Security::issue_forever<CDP<Offered, Collateral>>(
-            account,
-            CDP {
-                lender,
-                deal_id,
+        Event::emit(
+            owner_acc,
+            BankCreatedEvent<Offered, Collateral> {
+                owner: Signer::address_of(owner_acc),
+                deposit_amount,
+                max_ltv,
+                interest_rate_per_year,
+                max_loan_term_in_days
             });
+    }
 
+    public fun add_deposit<Offered: copyable, Collateral: copyable>(
+        acc: &signer,
+        bank_addr: address,
+        deposit: Pontem::T<Offered>,
+    ) acquires Bank {
+        assert(
+            exists<Bank<Offered, Collateral>>(bank_addr),
+            ERR_BANK_DOES_NOT_EXIST
+        );
 
-        let created_at = Time::now();
-        let ends_at = created_at + offer.deal_duration;
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
+        Pontem::deposit(&mut bank.deposit, deposit);
+        Event::emit(
+            acc,
+            BankUpdatedDepositAmountEvent<Offered, Collateral> {
+                owner: bank_addr,
+                new_deposit_amount: Pontem::value(&bank.deposit)
+            });
+    }
+
+    public fun withdraw_deposit<Offered: copyable, Collateral: copyable>(
+        owner_acc: &signer,
+        amount: u128,
+    ): Pontem::T<Offered> acquires Bank {
+        let bank_addr = Signer::address_of(owner_acc);
+        assert(
+            exists<Bank<Offered, Collateral>>(bank_addr),
+            ERR_BANK_DOES_NOT_EXIST
+        );
+
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
+        assert(
+            Pontem::value(&bank.deposit) >= amount,
+            ERR_BANK_DOES_NOT_HAVE_ENOUGH_COINS
+        );
+        let withdrawn = Pontem::withdraw(&mut bank.deposit, amount);
+        Event::emit(
+            owner_acc,
+            BankUpdatedDepositAmountEvent<Offered, Collateral> {
+                owner: bank_addr,
+                new_deposit_amount: Pontem::value(&bank.deposit)
+            });
+        withdrawn
+    }
+
+    public fun set_interest_rate<Offered: copyable, Collateral: copyable>(
+        owner_acc: &signer,
+        interest_rate_per_year: u64,
+    ) acquires Bank {
+        assert(
+            interest_rate_per_year < GLOBAL_MAX_INTEREST_RATE,
+            ERR_INCORRECT_INTEREST_RATE
+        );
+        let bank_addr = Signer::address_of(owner_acc);
+        assert(
+            exists<Bank<Offered, Collateral>>(bank_addr),
+            ERR_BANK_DOES_NOT_EXIST
+        );
+
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
+        bank.interest_rate_per_year = interest_rate_per_year;
+        Event::emit(
+            owner_acc,
+            BankUpdatedInterestRateEvent<Offered, Collateral> {
+                owner: bank_addr,
+                new_interest_rate: interest_rate_per_year
+            })
+    }
+
+    public fun set_max_loan_term<Offered: copyable, Collateral: copyable>(
+        owner_acc: &signer,
+        max_loan_term_in_days: u64,
+    ) acquires Bank {
+        assert(max_loan_term_in_days > 0, ERR_INCORRECT_LOAN_TERM);
+        let bank_addr = Signer::address_of(owner_acc);
+        assert(
+            exists<Bank<Offered, Collateral>>(bank_addr),
+            ERR_BANK_DOES_NOT_EXIST
+        );
+
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
+        bank.max_loan_term_in_days = max_loan_term_in_days;
+        Event::emit(
+            owner_acc,
+            BankUpdatedLoanTermEvent<Offered, Collateral> {
+                owner: bank_addr,
+                new_max_loan_term: max_loan_term_in_days,
+            });
+    }
+
+    public fun set_is_active<Offered: copyable, Collateral: copyable>(
+        owner_acc: &signer,
+        is_active: bool,
+    ) acquires Bank {
+        let bank_addr = Signer::address_of(owner_acc);
+        assert(
+            exists<Bank<Offered, Collateral>>(bank_addr),
+            ERR_BANK_DOES_NOT_EXIST
+        );
+
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
+        bank.is_active = is_active;
+    }
+
+    resource struct Deal<Offered: copyable, Collateral: copyable> {
+        deal_id: u64,
+        bank_owner_addr: address,
+        loan_amount_num: Math::Num,
+        collateral: Pontem::T<Collateral>,
+        created_at: u64,
+        // 0 means that created_at should be used
+        collect_interest_rate_from: u64,
+        loan_term_in_days: u64,
+        interest_rate_per_year: u64,
+    }
+
+    public fun create_deal<Offered: copyable, Collateral: copyable>(
+        borrower_acc: &signer,
+        bank_addr: address,
+        collateral: Pontem::T<Collateral>,
+        loan_amount_num: Math::Num,
+        loan_term_in_days: u64,
+    ): Pontem::T<Offered> acquires Bank {
+        assert(
+            exists<Bank<Offered, Collateral>>(bank_addr),
+            ERR_BANK_DOES_NOT_EXIST
+        );
+
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
+        assert(bank.is_active, ERR_BANK_IS_NOT_ACTIVE);
+        assert(loan_term_in_days <= bank.max_loan_term_in_days, ERR_INCORRECT_LOAN_TERM);
+
+        let offered_decimals = Pontem::decimals<Offered>();
+        let loan_amount = Math::scale_to_decimals(copy loan_amount_num, offered_decimals);
+        assert(loan_amount > 0, ERR_ZERO_AMOUNT);
+        assert(
+            Pontem::value(&bank.deposit) >= loan_amount,
+            ERR_BANK_DOES_NOT_HAVE_ENOUGH_COINS
+        );
+
+        let collateral_amount = Pontem::value(&collateral);
+        assert(collateral_amount > 0, ERR_ZERO_COLLATERAL);
+
+        let interest_rate_per_year = bank.interest_rate_per_year;
         let deal = Deal<Offered, Collateral> {
-            soft_mc,
-            hard_mc,
-            ends_at,
-            created_at,
-            allow_dro: offer.allow_dro,
-            offered_amt: amount_wanted,
-            collateral_amt,
-            id: deal_id,
-            ltv,
-            interest_rate,
+            deal_id: bank.next_deal_id,
+            bank_owner_addr: bank_addr,
+            collateral,
+            loan_amount_num: copy loan_amount_num,
+            created_at: Time::now(),
+            collect_interest_rate_from: 0,
+            interest_rate_per_year,
+            loan_term_in_days,
         };
+        let deal_id = deal.deal_id;
 
-        // Update the bank with proof and collateral
-        Vector::push_back(&mut offer.deals, deal);
-        Vector::push_back(&mut offer.proofs, proof);
-        Dfinance::deposit(&mut offer.collateral, collateral);
+        let loan_amount_with_one_day_interest = compute_loan_amount_with_interest(&deal);
+        let deal_ltv =
+            compute_ltv<Offered, Collateral>(
+                collateral_amount,
+                loan_amount_with_one_day_interest
+            );
+        assert(deal_ltv <= bank.max_ltv, ERR_INCORRECT_LTV);
 
-        offer.deals_made = deal_id + 1;
+        move_to(borrower_acc, deal);
+        bank.active_deals_count = bank.active_deals_count + 1;
+        bank.next_deal_id = bank.next_deal_id + 1;
 
-        Event::emit(account, DealCreatedEvent<Offered, Collateral> {
-            lender,
-            deal_id,
-            soft_mc,
-            hard_mc,
-            created_at,
-            ends_at,
-            collateral_amt,
-            offered_amt: amount_wanted,
-            borrower: Signer::address_of(account),
-            ltv,
-            interest_rate,
-        });
-
-        (offered, security)
+        let offered = Pontem::withdraw<Offered>(&mut bank.deposit, loan_amount);
+        Event::emit(
+            borrower_acc,
+            DealCreatedEvent<Offered, Collateral> {
+                borrower_addr: Signer::address_of(borrower_acc),
+                bank_owner_addr: bank_addr,
+                deal_id,
+                loan_amount_num,
+                collateral_amount,
+                loan_term_in_days,
+                interest_rate_per_year,
+            });
+        offered
     }
 
+    public fun borrow_more<Offered: copyable, Collateral: copyable>(
+        borrower_acc: &signer,
+        new_loan_amount_num: Math::Num
+    ): Pontem::T<Offered> acquires Deal, Bank {
+        let borrower_addr = Signer::address_of(borrower_acc);
+        assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
 
-    public fun create_dro<Offered: copyable, Collateral: copyable>(
-        account: &signer,
-        security: &Security<CDP<Offered, Collateral>>
-    ) acquires Offer {
+        let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(deal.bank_owner_addr);
 
-        let CDP {
-            deal_id,
-            lender
-        } = *Security::borrow(security);
-
-        let _ = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let _ = deal_id;
-        let _ = account;
-    }
-
-    ///
-    public fun get_deal_status_by_id<Offered: copyable, Collateral: copyable>(
-        lender: address,
-        deal_id: u64
-    ): u8 acquires Offer {
+        let offered_decimals = Pontem::decimals<Offered>();
+        let new_loan_amount = Math::scale_to_decimals(copy new_loan_amount_num, offered_decimals);
+        assert(new_loan_amount > 0, ERR_ZERO_AMOUNT);
         assert(
-            exists<Offer<Offered, Collateral>>(lender),
-            ERR_OFFER_DOES_NOT_EXIST
+            Pontem::value(&bank.deposit) >= new_loan_amount,
+            ERR_BANK_DOES_NOT_HAVE_ENOUGH_COINS
         );
-        let offer     = borrow_global<Offer<Offered, Collateral>>(lender);
-        let (deal, _) = find_deal<Offered, Collateral>(&offer.deals, deal_id);
+        let collateral_amount = Pontem::value(&deal.collateral);
 
-        get_deal_status<Offered, Collateral>(deal)
+        let existing_loan_amount_num = compute_loan_amount_with_interest(deal);
+        deal.collect_interest_rate_from = Time::now();
+        deal.loan_amount_num = Math::add(existing_loan_amount_num, new_loan_amount_num);
+
+        let new_loan_amount_num = compute_loan_amount_with_interest(deal);
+        let new_deal_ltv = compute_ltv<Offered, Collateral>(collateral_amount, new_loan_amount_num);
+        assert(new_deal_ltv <= bank.max_ltv, ERR_INCORRECT_LTV);
+
+        let offered = Pontem::withdraw<Offered>(&mut bank.deposit, new_loan_amount);
+        Event::emit(
+            borrower_acc,
+            DealBorrowedMoreEvent<Offered, Collateral> {
+                borrower_addr,
+                bank_owner_addr: deal.bank_owner_addr,
+                deal_id: deal.deal_id,
+                new_loan_amount,
+            });
+        offered
     }
 
-    /// Get status of the dealio - whether it has reached soft/hard MC or not
-    fun get_deal_status<Offered: copyable, Collateral: copyable>(
-        deal: &Deal<Offered, Collateral>
-    ): u8 {
-        let price = Coins::get_price<Collateral, Offered>();
-        let now   = Time::now();
+    public fun pay_back_partially<Offered: copyable, Collateral: copyable>(
+        acc: &signer,
+        borrower_addr: address,
+        offered: Pontem::T<Offered>
+    ) acquires Deal {
+        assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
 
-        if (now > deal.ends_at) {
-            STATUS_EXPIRED
-        } else if (price <= deal.hard_mc) {
-            STATUS_HARD_MC_REACHED
-        } else if (price <= deal.soft_mc) {
-            STATUS_SOFT_MC_REACHED
-        } else {
-            STATUS_DEAL_OKAY
-        }
-    }
+        let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
+        let loan_amount_with_interest_num = compute_loan_amount_with_interest(deal);
+        let bank_owner_addr = deal.bank_owner_addr;
 
-    /// Close the deal by margin call. Can be called by anyone, deal_id is
-    /// currently required for closing.
-    public fun close_by_status<Offered: copyable, Collateral: copyable>(
-        account: &signer,
-        lender: address,
-        deal_id: u64
-    ) acquires Offer {
+        let loan_amount_with_interest = Math::scale_to_decimals(
+            copy loan_amount_with_interest_num, Pontem::decimals<Offered>());
+
+        let offered_amount = Pontem::value(&offered);
         assert(
-            exists<Offer<Offered, Collateral>>(lender),
-            ERR_OFFER_DOES_NOT_EXIST
+            offered_amount < loan_amount_with_interest,
+            ERR_INVALID_PAYBACK_AMOUNT
         );
-        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let (deal_ref, pos) = find_deal(&offer.deals, deal_id);
-        let status = get_deal_status(deal_ref);
 
+        let offered_decimals = Pontem::decimals<Offered>();
+        let offered_num = num(offered_amount, offered_decimals);
+
+        let new_loan_amount_num = Math::sub(loan_amount_with_interest_num, offered_num);
+        deal.loan_amount_num = new_loan_amount_num;
+        deal.collect_interest_rate_from = Time::now();
+
+        Account::deposit(acc, bank_owner_addr, offered);
+        Event::emit(
+            acc,
+            DealPartiallyRepaidEvent<Offered, Collateral> {
+                borrower_addr,
+                bank_owner_addr,
+                deal_id: deal.deal_id,
+                repaid_loan_amount: offered_amount,
+            });
+    }
+
+    public fun add_collateral<Offered: copyable, Collateral: copyable>(
+        acc: &signer,
+        borrower_addr: address,
+        collateral: Pontem::T<Collateral>
+    ) acquires Deal {
+        assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
+
+        let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
+        let collateral_amount = Pontem::value(&collateral);
+        Pontem::deposit(&mut deal.collateral, collateral);
+        Event::emit(
+            acc,
+            DealCollateralAddedEvent<Offered, Collateral> {
+                borrower_addr,
+                bank_owner_addr: deal.bank_owner_addr,
+                deal_id: deal.deal_id,
+                collateral_added_amount: collateral_amount,
+            });
+    }
+
+    public fun collect_interest_rate<Offered: copyable, Collateral: copyable>(
+        acc: &signer,
+        borrower_addr: address,
+    ): Pontem::T<Collateral> acquires Deal {
         assert(
-            status == STATUS_HARD_MC_REACHED || status == STATUS_EXPIRED,
+            exists<Deal<Offered, Collateral>>(borrower_addr),
+            ERR_DEAL_DOES_NOT_EXIST
+        );
+
+        let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
+        let loan_amount_num = *&deal.loan_amount_num;
+        let interest_multiplier = compute_interest_rate_multiplier(deal);
+
+        let loan_interest_num = Math::mul(loan_amount_num, interest_multiplier);
+        let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
+
+        let loan_interest_in_collateral_num = Math::div(loan_interest_num, price_num);
+        let collateral_decimals = Pontem::decimals<Collateral>();
+        let loan_interest_in_collateral_amount = Math::scale_to_decimals(
+            loan_interest_in_collateral_num,
+            collateral_decimals);
+
+        let interest_collateral = Pontem::withdraw(
+            &mut deal.collateral, loan_interest_in_collateral_amount);
+        deal.collect_interest_rate_from = Time::now();
+        Event::emit(
+            acc,
+            DealInterestCollectedEvent<Offered, Collateral> {
+                borrower_addr,
+                bank_owner_addr: deal.bank_owner_addr,
+                deal_id: deal.deal_id,
+                interest_collateral_amount: Pontem::value(&interest_collateral)
+            }
+        );
+        interest_collateral
+    }
+
+    public fun close_deal_by_termination_status<Offered: copyable, Collateral: copyable>(
+        acc: &signer,
+        borrower_addr: address
+    ) acquires Deal, Bank {
+        assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
+
+        let deal_status = get_deal_status<Offered, Collateral>(borrower_addr);
+        assert(
+            deal_status != STATUS_VALID_CDP,
             ERR_HARD_MC_HAS_NOT_OCCURRED_OR_NOT_EXPIRED
         );
 
+        let deal = move_from<Deal<Offered, Collateral>>(borrower_addr);
+        let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
+        let loan_amount_with_interest_num = compute_loan_amount_with_interest<Offered, Collateral>(&deal);
         let Deal {
-            id: _,
-            soft_mc,
-            hard_mc,
-            allow_dro: _,
+            deal_id,
+            bank_owner_addr,
+            collateral,
+            loan_amount_num,
             created_at: _,
-            ends_at: _,
-            ltv,
-            interest_rate,
-            offered_amt,
-            collateral_amt,
-        } = Vector::remove(&mut offer.deals, pos);
+            collect_interest_rate_from: _,
+            loan_term_in_days: _,
+            interest_rate_per_year: _,
+        } = deal;
 
-        // If Hard MC is reached, then we can destroy the deal
-        let collateral = Dfinance::withdraw(&mut offer.collateral, collateral_amt);
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_owner_addr);
+        bank.active_deals_count = bank.active_deals_count - 1;
 
-        // Give Collateral to the lender
-        Account::deposit<Collateral>(account, lender, collateral);
+        let collateral_decimals = Pontem::decimals<Collateral>();
+        let collateral_num = num(Pontem::value(&collateral), collateral_decimals);
+        let collateral_in_offered_num =
+            Math::mul(copy price_num, collateral_num);
 
-        let reason = if (status == STATUS_EXPIRED) {
-            REASON_TIME
+        let borrower_collateral_amount;
+        let owner_collateral_amount;
+        if (math_lt(copy loan_amount_with_interest_num, collateral_in_offered_num)) {
+            let owner_collateral_num =
+                Math::div(loan_amount_with_interest_num, price_num);
+            owner_collateral_amount =
+                Math::scale_to_decimals(owner_collateral_num, collateral_decimals);
+            // pay bank with collateral amount of the loan
+            let owner_collateral = Pontem::withdraw(&mut collateral, owner_collateral_amount);
+            Account::deposit(acc, bank_owner_addr, owner_collateral);
+            // set variables for events
+            borrower_collateral_amount = Pontem::value(&collateral);
+            // send rest of the collateral back to borrower
+            Account::deposit(acc, borrower_addr, collateral);
         } else {
-            REASON_MC
+            // not enough collateral to cover the loan, just send all collateral to bank
+            owner_collateral_amount = Pontem::value(&collateral);
+            borrower_collateral_amount = 0;
+            Account::deposit(acc, bank_owner_addr, collateral);
         };
-
-        Event::emit(account, DealClosedByStatusEvent<Offered, Collateral> {
-            lender,
-            deal_id,
-            collateral_amt: collateral_amt,
-            offered_amt: offered_amt,
-            closed_at: Time::now(),
-            soft_mc,
-            hard_mc,
-            reason,
-            ltv,
-            interest_rate,
-        });
+        Event::emit(
+            acc,
+            DealTerminatedEvent<Offered, Collateral> {
+                borrower_addr,
+                bank_owner_addr,
+                deal_id,
+                loan_amount_num,
+                owner_collateral_amount,
+                borrower_collateral_amount,
+                termination_status: deal_status
+            })
     }
 
-    /// Return Offered asset back (by passing Security)
-    /// Required amount of money will be automatically taken from account.
-    /// Collateral is returned on success.
     public fun pay_back<Offered: copyable, Collateral: copyable>(
-        account: &signer,
-        security: Security<CDP<Offered, Collateral>>,
-    ): Dfinance::T<Collateral> acquires Offer {
-        let lender = Security::borrow(&security).lender;
+        acc: &signer,
+        borrower_addr: address,
+        offered: Pontem::T<Offered>,
+    ): Pontem::T<Collateral> acquires Deal {
+        assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
+
+        let deal = move_from<Deal<Offered, Collateral>>(borrower_addr);
+        let loan_amount_with_interest_num = compute_loan_amount_with_interest<Offered, Collateral>(&deal);
+        let offered_decimals = Pontem::decimals<Offered>();
+        let loan_amount_with_interest = Math::scale_to_decimals(
+            copy loan_amount_with_interest_num, offered_decimals);
         assert(
-            exists<Offer<Offered, Collateral>>(lender),
-            ERR_OFFER_DOES_NOT_EXIST
+            Pontem::value(&offered) == loan_amount_with_interest,
+            ERR_INVALID_PAYBACK_AMOUNT
         );
-        let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let CDP { lender: _, deal_id } = resolve_security(&mut offer.proofs, security);
-        let (deal_ref, pos) = find_deal(&offer.deals, deal_id);
-        let status = get_deal_status<Offered, Collateral>(deal_ref);
-
-        assert(status != STATUS_HARD_MC_REACHED, ERR_HARD_MC_HAS_OCCURRED);
-
         let Deal {
-            id: _,
-            allow_dro: _,
-            soft_mc: _,
-            hard_mc: _,
-            ends_at: _,
-            created_at,
-            ltv,
-            interest_rate,
-            offered_amt,
-            collateral_amt
-        } = Vector::remove(&mut offer.deals, pos);
-
-        let offered_decimals = Dfinance::decimals<Offered>();
-        let offered_num = num(offered_amt, offered_decimals);
-
-        // Interest rate calculations
-
-        // min days since CDP created is 1
-        let days_past = Time::days_from(created_at);
-        let days_past = if (days_past != 0) days_past else 1;
-
-        // DAYS_HELD_MULTIPLIER = NUM_DAYS_CDP_HELD / 365
-        let days_held_multiplier = Math::div(
-            // max accuracy is 18 decimals
-            num((days_past as u128) * MAX_ACCURACY_DIVISION_MULTIPLIER, 18),
-            num(365, 0)
-        );
-        let interest_rate_num = num((interest_rate as u128), INTEREST_RATE_DECIMALS);
-
-        // OFFERED_COINS_OWNED =
-        //      OFFERED_COINS_INITIALLY_RECEIVED
-        //      + ( OFFERED_COINS_INITIALLY_RECEIVED * INTEREST_RATE_IN_YEAR * DAYS_HELD_MULTIPLIER )
-        let pay_back_num = Math::add(
-            copy offered_num,
-            Math::mul(
-                Math::mul(offered_num, interest_rate_num),
-                days_held_multiplier
-            )
-        );
-
-        // it's in 18th dimension after Math::mul, need to scale down to `offered_decimals`
-        let pay_back_amt = Math::scale_to_decimals(pay_back_num, offered_decimals);
-
-        assert(Account::balance<Offered>(account) >= pay_back_amt, ERR_NOT_ENOUGH_MONEY);
-
-        // Return money by making a direct trasfer
-        let offered_paid = Account::withdraw_from_sender(account, pay_back_amt);
-        Dfinance::deposit<Offered>(&mut offer.deposit, offered_paid);
-
-        let collateral = Dfinance::withdraw(&mut offer.collateral, collateral_amt);
-
-        Event::emit(account, DealClosedPayBackEvent<Offered, Collateral> {
-            ltv,
-            lender,
             deal_id,
-            pay_back_amt,
-            interest_rate,
-            collateral_amt,
-            borrower: Signer::address_of(account),
-        });
+            bank_owner_addr,
+            collateral,
+            loan_amount_num: _,
+            created_at: _,
+            collect_interest_rate_from: _,
+            loan_term_in_days: _,
+            interest_rate_per_year: _,
+        } = deal;
 
-        (collateral)
+        Account::deposit(acc, bank_owner_addr, offered);
+        Event::emit(
+            acc,
+            DealPaidBackEvent<Offered, Collateral> {
+                borrower_addr,
+                bank_owner_addr,
+                deal_id,
+                loan_amount_with_interest_num,
+                collateral_amount: Pontem::value(&collateral),
+            });
+        collateral
     }
 
-    public fun get_deal_details<Offered: copyable, Collateral: copyable>(
-        lender: address,
-        deal_id: u64
-    ): (u64, u128, u128, u64, u64, u128, u128) acquires Offer {
-        assert(
-            exists<Offer<Offered, Collateral>>(lender),
-            ERR_OFFER_DOES_NOT_EXIST
-        );
-        let off  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let (deal, _) = find_deal<Offered, Collateral>(&off.deals, deal_id);
-
-        (
-            deal.ltv,
-            deal.soft_mc,
-            deal.hard_mc,
-            deal.created_at,
-            deal.interest_rate,
-            deal.offered_amt,
-            deal.collateral_amt,
-        )
+    public fun get_loan_amount<Offered: copyable, Collateral: copyable>(
+        borrower_addr: address
+    ): Math::Num acquires Deal {
+        let deal = borrow_global<Deal<Offered, Collateral>>(borrower_addr);
+        compute_loan_amount_with_interest(deal)
     }
 
-    /// Find deal with given ID in the list of deals and
-    /// return the Deal and it's index in Offer.deals to be removed later
-    fun find_deal<Offered: copyable, Collateral: copyable>(
-        deals: &vector<Deal<Offered, Collateral>>,
-        deal_id: u64
-    ): (&Deal<Offered, Collateral>, u64) {
-        let i = 0;
-        let l = Vector::length(deals);
+    public fun get_deal_status<Offered: copyable, Collateral: copyable>(
+        borrower_addr: address
+    ): u8 acquires Deal {
+        let deal = borrow_global<Deal<Offered, Collateral>>(borrower_addr);
 
-        while (i < l) {
-            let deal = Vector::borrow<Deal<Offered, Collateral>>(deals, i);
-            if (deal.id == deal_id) {
-                return (deal, i)  // Vector::remove<Deal<Offered, Collateral>>(deals, i)
-            };
-            i = i + 1;
+        let collateral_amount = Pontem::value(&deal.collateral);
+        let collateral_decimals = Pontem::decimals<Collateral>();
+        let collateral_num = num(collateral_amount, collateral_decimals);
+        let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
+
+        let offered_for_collateral = Math::mul(copy price_num, collateral_num);
+
+        let hard_mc_multiplier = num(HARD_MARGIN_CALL, MARGIN_CALL_DECIMALS);
+        let loan_amount_with_interest_num = compute_loan_amount_with_interest(deal);
+        let hard_mc_num = Math::mul(loan_amount_with_interest_num, hard_mc_multiplier);
+        if (Math::scale_to_decimals(offered_for_collateral, 18)
+            <= Math::scale_to_decimals(hard_mc_num, 18)) {
+            return STATUS_HARD_MC
         };
 
-        abort ERR_DEAL_DOES_NOT_EXIST
-    }
-
-    /// Walk through vector of Proofs to find match
-    fun resolve_security<Offered: copyable, Collateral: copyable>(
-        proofs: &mut vector<Security::Proof>,
-        security: Security<CDP<Offered, Collateral>>
-    ): CDP<Offered, Collateral> {
-        let i = 0;
-        let l = Vector::length(proofs);
-
-        while (i < l) {
-            let proof = Vector::borrow<Security::Proof>(proofs, i);
-            if (Security::can_prove(&security, proof)) {
-                return Security::prove(security, Vector::remove<Security::Proof>(proofs, i))
-            };
-            i = i + 1;
+        if (Time::days_from(deal.created_at) > deal.loan_term_in_days) {
+            return STATUS_EXPIRED
         };
 
-        abort ERR_SECURITY_DOES_NOT_EXIST
+        STATUS_VALID_CDP
     }
 
-    fun compute_margin_calls(amount_wanted: Math::Num): (u128, u128) {
-        // SMC = OFFERED_COINS * 1.3
-        let soft_mc_multiplier = num(SOFT_MARGIN_CALL, 2);
-        let soft_mc_num = Math::mul(copy amount_wanted, soft_mc_multiplier);
+    fun compute_loan_amount_with_interest<Offered: copyable, Collateral: copyable>(
+        deal: &Deal<Offered, Collateral>,
+    ): Math::Num {
+        let interest_multiplier = compute_interest_rate_multiplier(deal);
+        let loan_amount_num = *&deal.loan_amount_num;
+        let offered_with_interest_num =
+            Math::add(
+                copy loan_amount_num,
+                Math::mul(loan_amount_num, interest_multiplier)
+            );
+        offered_with_interest_num
+    }
 
-        // HMC = OFFERED_COINS * 1.5
+    fun compute_interest_rate_multiplier<Offered: copyable, Collateral: copyable>(
+        deal: &Deal<Offered, Collateral>
+    ): Math::Num {
+        let zero_day_interest_collected = deal.collect_interest_rate_from != 0;
+        let collect_interest_rate_from =
+            if (zero_day_interest_collected) deal.collect_interest_rate_from else deal.created_at;
+        let days_passed =
+            Time::days_from(collect_interest_rate_from) + (if (!zero_day_interest_collected) 1 else 0);
+        let days_passed_num = num((days_passed as u128), 0);
+        let interest_rate_num = num((deal.interest_rate_per_year as u128), INTEREST_RATE_DECIMALS);
+        let days_in_year = num(365, 0);
+        Math::div(Math::mul(days_passed_num, interest_rate_num), days_in_year)
+    }
+
+    fun compute_margin_call(offered_num: Math::Num): Math::Num {
+        // HMC = OFFERED_COINS * 1.3
         let hard_mc_multiplier = num(HARD_MARGIN_CALL, 2);
-        let hard_mc_num = Math::mul(amount_wanted, hard_mc_multiplier);
-
-        let soft_mc = Math::scale_to_decimals(soft_mc_num, EXCHANGE_RATE_DECIMALS);
-        let hard_mc = Math::scale_to_decimals(hard_mc_num, EXCHANGE_RATE_DECIMALS);
-
-        (soft_mc, hard_mc)
+        Math::mul(offered_num, hard_mc_multiplier)
     }
 
-    struct OfferCreatedEvent<Offered: copyable, Collateral: copyable> {
-        deposit_amt: u128,
-        lender: address,
-        min_ltv: u64,
-        interest_rate: u64,
-        deal_duration: u64,
-        allow_dro: bool,
-        dro_buy_gate: u64
+    fun compute_ltv<Offered: copyable, Collateral: copyable>(
+        collateral_amount: u128,
+        loan_amount_num: Math::Num
+    ): u64 {
+        let price = Coins::get_price<Offered, Collateral>();
+        let collateral_dec = Pontem::decimals<Collateral>();
+        let collateral_num = num(collateral_amount, collateral_dec);
+
+        let price_num = num(price, EXCHANGE_RATE_DECIMALS);
+
+        let ltv_num = Math::div(
+            loan_amount_num,
+            Math::mul(collateral_num, price_num)
+        );
+        ((Math::scale_to_decimals(ltv_num, 2) * 100) as u64)
     }
 
-    struct OfferDepositedEvent<Offered: copyable, Collateral: copyable> {
-        deposit_amt: u128,
-        lender: address,
+    fun math_lt(l: Math::Num, r: Math::Num): bool {
+        Math::scale_to_decimals(l, 18) < Math::scale_to_decimals(r, 18)
     }
 
-    struct OfferWithdrawalEvent<Offered: copyable, Collateral: copyable> {
-        withdraw_amt: u128,
-        lender: address,
+    struct BankCreatedEvent<Offered: copyable, Collateral: copyable> {
+        owner: address,
+        deposit_amount: u128,
+        max_ltv: u64,
+        interest_rate_per_year: u64,
+        max_loan_term_in_days: u64,
+    }
+
+    struct BankUpdatedDepositAmountEvent<Offered: copyable, Collateral: copyable> {
+        owner: address,
+        new_deposit_amount: u128,
+    }
+
+    struct BankUpdatedInterestRateEvent<Offered: copyable, Collateral: copyable> {
+        owner: address,
+        new_interest_rate: u64,
+    }
+
+    struct BankUpdatedLoanTermEvent<Offered: copyable, Collateral: copyable> {
+        owner: address,
+        new_max_loan_term: u64,
+    }
+
+    struct BankChangeActiveStatus<Offered: copyable, Collateral: copyable> {
+        owner: address,
+        is_active: bool
     }
 
     struct DealCreatedEvent<Offered: copyable, Collateral: copyable> {
-        lender: address,
+        borrower_addr: address,
+        bank_owner_addr: address,
         deal_id: u64,
-        borrower: address,
-        offered_amt: u128,
-        collateral_amt: u128,
-        ends_at: u64,
-        created_at: u64,
-        soft_mc: u128,
-        hard_mc: u128,
-
-        ltv: u64,
-        interest_rate: u64,
+        loan_amount_num: Math::Num,
+        collateral_amount: u128,
+        loan_term_in_days: u64,
+        interest_rate_per_year: u64,
     }
 
-    struct OfferDeactivatedEvent<Offered: copyable, Collateral: copyable> {
-        lender: address
-    }
-
-    struct OfferActivatedEvent<Offered: copyable, Collateral: copyable> {
-        lender: address
-    }
-
-    struct DealClosedPayBackEvent<Offered: copyable, Collateral: copyable> {
+    struct DealBorrowedMoreEvent<Offered: copyable, Collateral: copyable> {
+        borrower_addr: address,
+        bank_owner_addr: address,
         deal_id: u64,
-        lender: address,
-        borrower: address,
-        pay_back_amt: u128,
-        collateral_amt: u128,
-
-        ltv: u64,
-        interest_rate: u64,
+        new_loan_amount: u128,
     }
 
-    struct DealClosedByStatusEvent<Offered: copyable, Collateral: copyable> {
-        lender: address,
+    struct DealPartiallyRepaidEvent<Offered: copyable, Collateral: copyable> {
+        borrower_addr: address,
+        bank_owner_addr: address,
         deal_id: u64,
-        collateral_amt: u128,
-        offered_amt: u128,
-        closed_at: u64,
-        soft_mc: u128,
-        hard_mc: u128,
-        reason: u8,
-        ltv: u64,
-        interest_rate: u64,
+        repaid_loan_amount: u128,
+    }
+
+    struct DealCollateralAddedEvent<Offered: copyable, Collateral: copyable> {
+        borrower_addr: address,
+        bank_owner_addr: address,
+        deal_id: u64,
+        collateral_added_amount: u128
+    }
+
+    struct DealInterestCollectedEvent<Offered: copyable, Collateral: copyable> {
+        borrower_addr: address,
+        bank_owner_addr: address,
+        deal_id: u64,
+        interest_collateral_amount: u128,
+    }
+
+    struct DealTerminatedEvent<Offered: copyable, Collateral: copyable> {
+        borrower_addr: address,
+        bank_owner_addr: address,
+        deal_id: u64,
+        loan_amount_num: Math::Num,
+        owner_collateral_amount: u128,
+        borrower_collateral_amount: u128,
+        termination_status: u8,
+    }
+
+    struct DealPaidBackEvent<Offered: copyable, Collateral: copyable> {
+        borrower_addr: address,
+        bank_owner_addr: address,
+        deal_id: u64,
+        loan_amount_with_interest_num: Math::Num,
+        collateral_amount: u128,
     }
 }
 }
-
-
