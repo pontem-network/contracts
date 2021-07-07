@@ -1,11 +1,11 @@
 /// signers: 0x1
 script {
-    use 0x1::Dfinance;
+    use 0x1::Pontem;
     use 0x1::Coins::{ETH, BTC};
 
     fun register_coins(std_acc: &signer) {
-        Dfinance::register_coin<BTC>(std_acc, b"btc", 10);
-        Dfinance::register_coin<ETH>(std_acc, b"eth", 18);
+        Pontem::register_coin<BTC>(std_acc, b"btc", 10);
+        Pontem::register_coin<ETH>(std_acc, b"eth", 18);
     }
 }
 
@@ -15,7 +15,7 @@ script {
 script {
     use 0x1::Math;
     use 0x1::Math::num;
-    use 0x1::Dfinance;
+    use 0x1::Pontem;
     use 0x1::Coins::{ETH, BTC};
 
     use 0x1::CDP;
@@ -26,7 +26,7 @@ script {
         let eth_amount_num = num(100, 0);
         let eth_amount = Math::scale_to_decimals(eth_amount_num, 18);
 
-        let eth_minted = Dfinance::mint<ETH>(eth_amount);
+        let eth_minted = Pontem::mint<ETH>(eth_amount);
         // 66%
         let bank_ltv = 6600;
         // 0.10% (0010)
@@ -48,7 +48,7 @@ script {
 /// aborts_with: 106
 script {
     use 0x1::Account;
-    use 0x1::Dfinance;
+    use 0x1::Pontem;
     use 0x1::CDP;
     use 0x1::Math;
     use 0x1::Math::num;
@@ -60,7 +60,7 @@ script {
         // BTC collateral is 10 BTC (= 1000 ETH > 100 ETH present in the bank)
         let btc_num = num(10, 0);
         let btc_amount = Math::scale_to_decimals(copy btc_num, 10);
-        let btc_collateral = Dfinance::mint<BTC>(btc_amount);
+        let btc_collateral = Pontem::mint<BTC>(btc_amount);
 
         // Exchange rate is 100 * 10^8 (8 decimal places) = 10000000000
 
@@ -89,7 +89,7 @@ script {
 /// current_time: 100
 script {
     use 0x1::Account;
-    use 0x1::Dfinance;
+    use 0x1::Pontem;
     use 0x1::CDP;
     use 0x1::Math;
     use 0x1::Math::num;
@@ -102,7 +102,7 @@ script {
         let btc_num = num(1, 0);
         let btc_amount = Math::scale_to_decimals(copy btc_num, 10);
 
-        let btc_collateral = Dfinance::mint<BTC>(btc_amount);
+        let btc_collateral = Pontem::mint<BTC>(btc_amount);
 
         // LTV = (Offered / (Collateral * Price)) * 100%
         // Offered = LTV * Collateral * Price / 100%
@@ -120,7 +120,7 @@ script {
             loan_amount_num,
             90);
 
-        let offered_num = num(Dfinance::value(&offered), 18);
+        let offered_num = num(Pontem::value(&offered), 18);
         assert(Math::scale_to_decimals(offered_num, 0) == 65, 1);  // 10.218 ETH
 
         Account::deposit_to_sender<ETH>(borrower_acc, offered);

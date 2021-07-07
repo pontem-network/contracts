@@ -1,7 +1,7 @@
 address 0x1 {
 module CDP {
     use 0x1::Account;
-    use 0x1::Dfinance;
+    use 0x1::Pontem;
     use 0x1::Signer;
     use 0x1::Event;
     use 0x1::Coins;
@@ -40,7 +40,7 @@ module CDP {
     const ERR_INVALID_PAYBACK_AMOUNT: u64 = 303;
 
     resource struct Bank<Offered: copyable, Collateral: copyable> {
-        deposit: Dfinance::T<Offered>,
+        deposit: Pontem::T<Offered>,
 
         /// Loan-to-Value ratio: [0, 6600] (2 signs after comma)
         max_ltv: u64,
@@ -56,7 +56,7 @@ module CDP {
 
     public fun create_bank<Offered: copyable, Collateral: copyable>(
         owner_acc: &signer,
-        deposit: Dfinance::T<Offered>,
+        deposit: Pontem::T<Offered>,
         max_ltv: u64,
         interest_rate_per_year: u64,
         max_loan_term_in_days: u64,
@@ -65,7 +65,7 @@ module CDP {
         assert(0u64 < max_ltv && max_ltv <= GLOBAL_MAX_LTV, ERR_INCORRECT_LTV);
         assert(interest_rate_per_year <= GLOBAL_MAX_INTEREST_RATE, ERR_INCORRECT_INTEREST_RATE);
 
-        let deposit_amount = Dfinance::value(&deposit);
+        let deposit_amount = Pontem::value(&deposit);
 
         let bank =
             Bank<Offered, Collateral> {
@@ -93,7 +93,7 @@ module CDP {
     public fun add_deposit<Offered: copyable, Collateral: copyable>(
         acc: &signer,
         bank_addr: address,
-        deposit: Dfinance::T<Offered>,
+        deposit: Pontem::T<Offered>,
     ) acquires Bank {
         assert(
             exists<Bank<Offered, Collateral>>(bank_addr),
@@ -101,19 +101,19 @@ module CDP {
         );
 
         let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
-        Dfinance::deposit(&mut bank.deposit, deposit);
+        Pontem::deposit(&mut bank.deposit, deposit);
         Event::emit(
             acc,
             BankUpdatedDepositAmountEvent<Offered, Collateral> {
                 owner: bank_addr,
-                new_deposit_amount: Dfinance::value(&bank.deposit)
+                new_deposit_amount: Pontem::value(&bank.deposit)
             });
     }
 
     public fun withdraw_deposit<Offered: copyable, Collateral: copyable>(
         owner_acc: &signer,
         amount: u128,
-    ): Dfinance::T<Offered> acquires Bank {
+    ): Pontem::T<Offered> acquires Bank {
         let bank_addr = Signer::address_of(owner_acc);
         assert(
             exists<Bank<Offered, Collateral>>(bank_addr),
@@ -122,15 +122,15 @@ module CDP {
 
         let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
         assert(
-            Dfinance::value(&bank.deposit) >= amount,
+            Pontem::value(&bank.deposit) >= amount,
             ERR_BANK_DOES_NOT_HAVE_ENOUGH_COINS
         );
-        let withdrawn = Dfinance::withdraw(&mut bank.deposit, amount);
+        let withdrawn = Pontem::withdraw(&mut bank.deposit, amount);
         Event::emit(
             owner_acc,
             BankUpdatedDepositAmountEvent<Offered, Collateral> {
                 owner: bank_addr,
-                new_deposit_amount: Dfinance::value(&bank.deposit)
+                new_deposit_amount: Pontem::value(&bank.deposit)
             });
         withdrawn
     }
@@ -198,7 +198,7 @@ module CDP {
         deal_id: u64,
         bank_owner_addr: address,
         loan_amount_num: Math::Num,
-        collateral: Dfinance::T<Collateral>,
+        collateral: Pontem::T<Collateral>,
         created_at: u64,
         // 0 means that created_at should be used
         collect_interest_rate_from: u64,
@@ -209,10 +209,10 @@ module CDP {
     public fun create_deal<Offered: copyable, Collateral: copyable>(
         borrower_acc: &signer,
         bank_addr: address,
-        collateral: Dfinance::T<Collateral>,
+        collateral: Pontem::T<Collateral>,
         loan_amount_num: Math::Num,
         loan_term_in_days: u64,
-    ): Dfinance::T<Offered> acquires Bank {
+    ): Pontem::T<Offered> acquires Bank {
         assert(
             exists<Bank<Offered, Collateral>>(bank_addr),
             ERR_BANK_DOES_NOT_EXIST
@@ -222,15 +222,15 @@ module CDP {
         assert(bank.is_active, ERR_BANK_IS_NOT_ACTIVE);
         assert(loan_term_in_days <= bank.max_loan_term_in_days, ERR_INCORRECT_LOAN_TERM);
 
-        let offered_decimals = Dfinance::decimals<Offered>();
+        let offered_decimals = Pontem::decimals<Offered>();
         let loan_amount = Math::scale_to_decimals(copy loan_amount_num, offered_decimals);
         assert(loan_amount > 0, ERR_ZERO_AMOUNT);
         assert(
-            Dfinance::value(&bank.deposit) >= loan_amount,
+            Pontem::value(&bank.deposit) >= loan_amount,
             ERR_BANK_DOES_NOT_HAVE_ENOUGH_COINS
         );
 
-        let collateral_amount = Dfinance::value(&collateral);
+        let collateral_amount = Pontem::value(&collateral);
         assert(collateral_amount > 0, ERR_ZERO_COLLATERAL);
 
         let interest_rate_per_year = bank.interest_rate_per_year;
@@ -258,7 +258,7 @@ module CDP {
         bank.active_deals_count = bank.active_deals_count + 1;
         bank.next_deal_id = bank.next_deal_id + 1;
 
-        let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, loan_amount);
+        let offered = Pontem::withdraw<Offered>(&mut bank.deposit, loan_amount);
         Event::emit(
             borrower_acc,
             DealCreatedEvent<Offered, Collateral> {
@@ -276,21 +276,21 @@ module CDP {
     public fun borrow_more<Offered: copyable, Collateral: copyable>(
         borrower_acc: &signer,
         new_loan_amount_num: Math::Num
-    ): Dfinance::T<Offered> acquires Deal, Bank {
+    ): Pontem::T<Offered> acquires Deal, Bank {
         let borrower_addr = Signer::address_of(borrower_acc);
         assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
 
         let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
         let bank = borrow_global_mut<Bank<Offered, Collateral>>(deal.bank_owner_addr);
 
-        let offered_decimals = Dfinance::decimals<Offered>();
+        let offered_decimals = Pontem::decimals<Offered>();
         let new_loan_amount = Math::scale_to_decimals(copy new_loan_amount_num, offered_decimals);
         assert(new_loan_amount > 0, ERR_ZERO_AMOUNT);
         assert(
-            Dfinance::value(&bank.deposit) >= new_loan_amount,
+            Pontem::value(&bank.deposit) >= new_loan_amount,
             ERR_BANK_DOES_NOT_HAVE_ENOUGH_COINS
         );
-        let collateral_amount = Dfinance::value(&deal.collateral);
+        let collateral_amount = Pontem::value(&deal.collateral);
 
         let existing_loan_amount_num = compute_loan_amount_with_interest(deal);
         deal.collect_interest_rate_from = Time::now();
@@ -300,7 +300,7 @@ module CDP {
         let new_deal_ltv = compute_ltv<Offered, Collateral>(collateral_amount, new_loan_amount_num);
         assert(new_deal_ltv <= bank.max_ltv, ERR_INCORRECT_LTV);
 
-        let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, new_loan_amount);
+        let offered = Pontem::withdraw<Offered>(&mut bank.deposit, new_loan_amount);
         Event::emit(
             borrower_acc,
             DealBorrowedMoreEvent<Offered, Collateral> {
@@ -315,7 +315,7 @@ module CDP {
     public fun pay_back_partially<Offered: copyable, Collateral: copyable>(
         acc: &signer,
         borrower_addr: address,
-        offered: Dfinance::T<Offered>
+        offered: Pontem::T<Offered>
     ) acquires Deal {
         assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
 
@@ -324,15 +324,15 @@ module CDP {
         let bank_owner_addr = deal.bank_owner_addr;
 
         let loan_amount_with_interest = Math::scale_to_decimals(
-            copy loan_amount_with_interest_num, Dfinance::decimals<Offered>());
+            copy loan_amount_with_interest_num, Pontem::decimals<Offered>());
 
-        let offered_amount = Dfinance::value(&offered);
+        let offered_amount = Pontem::value(&offered);
         assert(
             offered_amount < loan_amount_with_interest,
             ERR_INVALID_PAYBACK_AMOUNT
         );
 
-        let offered_decimals = Dfinance::decimals<Offered>();
+        let offered_decimals = Pontem::decimals<Offered>();
         let offered_num = num(offered_amount, offered_decimals);
 
         let new_loan_amount_num = Math::sub(loan_amount_with_interest_num, offered_num);
@@ -353,13 +353,13 @@ module CDP {
     public fun add_collateral<Offered: copyable, Collateral: copyable>(
         acc: &signer,
         borrower_addr: address,
-        collateral: Dfinance::T<Collateral>
+        collateral: Pontem::T<Collateral>
     ) acquires Deal {
         assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
 
         let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
-        let collateral_amount = Dfinance::value(&collateral);
-        Dfinance::deposit(&mut deal.collateral, collateral);
+        let collateral_amount = Pontem::value(&collateral);
+        Pontem::deposit(&mut deal.collateral, collateral);
         Event::emit(
             acc,
             DealCollateralAddedEvent<Offered, Collateral> {
@@ -373,7 +373,7 @@ module CDP {
     public fun collect_interest_rate<Offered: copyable, Collateral: copyable>(
         acc: &signer,
         borrower_addr: address,
-    ): Dfinance::T<Collateral> acquires Deal {
+    ): Pontem::T<Collateral> acquires Deal {
         assert(
             exists<Deal<Offered, Collateral>>(borrower_addr),
             ERR_DEAL_DOES_NOT_EXIST
@@ -387,12 +387,12 @@ module CDP {
         let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
 
         let loan_interest_in_collateral_num = Math::div(loan_interest_num, price_num);
-        let collateral_decimals = Dfinance::decimals<Collateral>();
+        let collateral_decimals = Pontem::decimals<Collateral>();
         let loan_interest_in_collateral_amount = Math::scale_to_decimals(
             loan_interest_in_collateral_num,
             collateral_decimals);
 
-        let interest_collateral = Dfinance::withdraw(
+        let interest_collateral = Pontem::withdraw(
             &mut deal.collateral, loan_interest_in_collateral_amount);
         deal.collect_interest_rate_from = Time::now();
         Event::emit(
@@ -401,7 +401,7 @@ module CDP {
                 borrower_addr,
                 bank_owner_addr: deal.bank_owner_addr,
                 deal_id: deal.deal_id,
-                interest_collateral_amount: Dfinance::value(&interest_collateral)
+                interest_collateral_amount: Pontem::value(&interest_collateral)
             }
         );
         interest_collateral
@@ -436,8 +436,8 @@ module CDP {
         let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_owner_addr);
         bank.active_deals_count = bank.active_deals_count - 1;
 
-        let collateral_decimals = Dfinance::decimals<Collateral>();
-        let collateral_num = num(Dfinance::value(&collateral), collateral_decimals);
+        let collateral_decimals = Pontem::decimals<Collateral>();
+        let collateral_num = num(Pontem::value(&collateral), collateral_decimals);
         let collateral_in_offered_num =
             Math::mul(copy price_num, collateral_num);
 
@@ -449,15 +449,15 @@ module CDP {
             owner_collateral_amount =
                 Math::scale_to_decimals(owner_collateral_num, collateral_decimals);
             // pay bank with collateral amount of the loan
-            let owner_collateral = Dfinance::withdraw(&mut collateral, owner_collateral_amount);
+            let owner_collateral = Pontem::withdraw(&mut collateral, owner_collateral_amount);
             Account::deposit(acc, bank_owner_addr, owner_collateral);
             // set variables for events
-            borrower_collateral_amount = Dfinance::value(&collateral);
+            borrower_collateral_amount = Pontem::value(&collateral);
             // send rest of the collateral back to borrower
             Account::deposit(acc, borrower_addr, collateral);
         } else {
             // not enough collateral to cover the loan, just send all collateral to bank
-            owner_collateral_amount = Dfinance::value(&collateral);
+            owner_collateral_amount = Pontem::value(&collateral);
             borrower_collateral_amount = 0;
             Account::deposit(acc, bank_owner_addr, collateral);
         };
@@ -477,17 +477,17 @@ module CDP {
     public fun pay_back<Offered: copyable, Collateral: copyable>(
         acc: &signer,
         borrower_addr: address,
-        offered: Dfinance::T<Offered>,
-    ): Dfinance::T<Collateral> acquires Deal {
+        offered: Pontem::T<Offered>,
+    ): Pontem::T<Collateral> acquires Deal {
         assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
 
         let deal = move_from<Deal<Offered, Collateral>>(borrower_addr);
         let loan_amount_with_interest_num = compute_loan_amount_with_interest<Offered, Collateral>(&deal);
-        let offered_decimals = Dfinance::decimals<Offered>();
+        let offered_decimals = Pontem::decimals<Offered>();
         let loan_amount_with_interest = Math::scale_to_decimals(
             copy loan_amount_with_interest_num, offered_decimals);
         assert(
-            Dfinance::value(&offered) == loan_amount_with_interest,
+            Pontem::value(&offered) == loan_amount_with_interest,
             ERR_INVALID_PAYBACK_AMOUNT
         );
         let Deal {
@@ -509,7 +509,7 @@ module CDP {
                 bank_owner_addr,
                 deal_id,
                 loan_amount_with_interest_num,
-                collateral_amount: Dfinance::value(&collateral),
+                collateral_amount: Pontem::value(&collateral),
             });
         collateral
     }
@@ -526,8 +526,8 @@ module CDP {
     ): u8 acquires Deal {
         let deal = borrow_global<Deal<Offered, Collateral>>(borrower_addr);
 
-        let collateral_amount = Dfinance::value(&deal.collateral);
-        let collateral_decimals = Dfinance::decimals<Collateral>();
+        let collateral_amount = Pontem::value(&deal.collateral);
+        let collateral_decimals = Pontem::decimals<Collateral>();
         let collateral_num = num(collateral_amount, collateral_decimals);
         let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
 
@@ -586,7 +586,7 @@ module CDP {
         loan_amount_num: Math::Num
     ): u64 {
         let price = Coins::get_price<Offered, Collateral>();
-        let collateral_dec = Dfinance::decimals<Collateral>();
+        let collateral_dec = Pontem::decimals<Collateral>();
         let collateral_num = num(collateral_amount, collateral_dec);
 
         let price_num = num(price, EXCHANGE_RATE_DECIMALS);

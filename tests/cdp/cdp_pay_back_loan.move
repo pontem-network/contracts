@@ -1,11 +1,11 @@
 /// signers: 0x1
 script {
-    use 0x1::Dfinance;
+    use 0x1::Pontem;
     use 0x1::Coins::{ETH, BTC};
 
     fun register_coins(std_acc: &signer) {
-        Dfinance::register_coin<BTC>(std_acc, b"btc", 10);
-        Dfinance::register_coin<ETH>(std_acc, b"eth", 18);
+        Pontem::register_coin<BTC>(std_acc, b"btc", 10);
+        Pontem::register_coin<ETH>(std_acc, b"eth", 18);
     }
 }
 
@@ -15,7 +15,7 @@ script {
 script {
     use 0x1::Math;
     use 0x1::Math::num;
-    use 0x1::Dfinance;
+    use 0x1::Pontem;
     use 0x1::Coins::{ETH, BTC};
 
     use 0x1::CDP;
@@ -25,7 +25,7 @@ script {
         let eth_amount_num = num(100, 0);
         let eth_amount = Math::scale_to_decimals(eth_amount_num, 18);
 
-        let eth_minted = Dfinance::mint<ETH>(eth_amount);
+        let eth_minted = Pontem::mint<ETH>(eth_amount);
         // 66%
         let bank_ltv = 6600;
         // 0.10% (0010)
@@ -41,7 +41,7 @@ script {
 /// current_time: 100
 script {
     use 0x1::Account;
-    use 0x1::Dfinance;
+    use 0x1::Pontem;
     use 0x1::CDP;
     use 0x1::Math;
     use 0x1::Math::num;
@@ -54,7 +54,7 @@ script {
         let btc_num = num(1, 0);
         let btc_amount = Math::scale_to_decimals(copy btc_num, 10);
 
-        let btc_collateral = Dfinance::mint<BTC>(btc_amount);
+        let btc_collateral = Pontem::mint<BTC>(btc_amount);
 
         // Exchange rate is 15.72 * 10^8 (8 decimal places) = 1572000000
 
@@ -74,7 +74,7 @@ script {
             90
         );
 
-        let offered_num = num(Dfinance::value(&offered), 18);
+        let offered_num = num(Pontem::value(&offered), 18);
         assert(Math::scale_to_decimals(offered_num, 3) == 10218, 1);  // 10.218 ETH
 
         Account::deposit_to_sender<ETH>(borrower_acc, offered);
@@ -88,7 +88,7 @@ script {
     use 0x1::Account;
     use 0x1::CDP;
     use 0x1::Signer;
-    use 0x1::Dfinance;
+    use 0x1::Pontem;
     use 0x1::Coins::{ETH, BTC};
     use 0x1::Math;
     use 0x1::Math::num;
@@ -98,12 +98,12 @@ script {
 
         let loan_amount_num = CDP::get_loan_amount<ETH, BTC>(borrower_addr);
         let loan_amount = Math::scale_to_decimals(loan_amount_num, 18);
-        let minted_eth_loan = Dfinance::mint<ETH>(loan_amount);
+        let minted_eth_loan = Pontem::mint<ETH>(loan_amount);
 
         let collateral = CDP::pay_back<ETH, BTC>(borrower_acc, borrower_addr, minted_eth_loan);
         let expected_collateral_btc_num = num(1, 0);
         assert(
-            Dfinance::value(&collateral) == Math::scale_to_decimals(expected_collateral_btc_num, 10),
+            Pontem::value(&collateral) == Math::scale_to_decimals(expected_collateral_btc_num, 10),
             10
         );
         Account::deposit_to_sender(borrower_acc, collateral);

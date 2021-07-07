@@ -9,7 +9,7 @@ address 0x1 {
 /// accessible until Offered is returned
 module CDP {
     use 0x1::Coins;
-    use 0x1::Dfinance;
+    use 0x1::Pontem;
     use 0x1::Security::{Self, Security};
     use 0x1::Account;
     use 0x1::Signer;
@@ -59,8 +59,8 @@ module CDP {
     const REASON_TIME: u8 = 2;
 
     resource struct Offer<Offered: copyable, Collateral: copyable> {
-        deposit: Dfinance::T<Offered>,
-        collateral: Dfinance::T<Collateral>,
+        deposit: Pontem::T<Offered>,
+        collateral: Pontem::T<Collateral>,
         proofs: vector<Security::Proof>,
         // ID COUNTER
         deals_made: u64,
@@ -139,7 +139,7 @@ module CDP {
         let off = borrow_global<Offer<Offered, Collateral>>(lender);
 
         (
-            Dfinance::value(&off.deposit),
+            Pontem::value(&off.deposit),
             off.min_ltv,
             off.interest_rate,
             off.is_active,
@@ -151,7 +151,7 @@ module CDP {
     /// Create an Offer disallowing DRO
     public fun create_offer_without_dro<Offered: copyable, Collateral: copyable>(
         account: &signer,
-        to_deposit: Dfinance::T<Offered>,
+        to_deposit: Pontem::T<Offered>,
         min_ltv: u64,
         interest_rate: u64,
         deal_duration: u64
@@ -172,7 +172,7 @@ module CDP {
     /// Collateral for Offered.
     public fun create_offer<Offered: copyable, Collateral: copyable>(
         account: &signer,
-        to_deposit: Dfinance::T<Offered>,
+        to_deposit: Pontem::T<Offered>,
         min_ltv: u64,
         interest_rate: u64,
         deal_duration: u64,
@@ -183,11 +183,11 @@ module CDP {
         assert(Coins::has_price<Collateral, Offered>(), ERR_NO_ORACLE_PRICE);
         assert(allow_dro == false || dro_buy_gate > 0, ERR_ZERO_DRO_GATE);
 
-        let deposit_amt = Dfinance::value(&to_deposit);
+        let deposit_amt = Pontem::value(&to_deposit);
 
         move_to(account, Offer<Offered, Collateral> {
             deposit: to_deposit,
-            collateral: Dfinance::zero<Collateral>(),
+            collateral: Pontem::zero<Collateral>(),
             proofs: Vector::empty<Security::Proof>(),
             deals: Vector::empty<Deal<Offered, Collateral>>(),
             deals_made: 0,
@@ -252,16 +252,16 @@ module CDP {
     public fun deposit<Offered: copyable, Collateral: copyable>(
         account: &signer,
         lender: address,
-        to_deposit: Dfinance::T<Offered>
+        to_deposit: Pontem::T<Offered>
     ) acquires Offer {
         assert(
             exists<Offer<Offered, Collateral>>(lender),
             ERR_OFFER_DOES_NOT_EXIST
         );
         let offer = borrow_global_mut<Offer<Offered, Collateral>>(lender);
-        let deposit_amt = Dfinance::value(&to_deposit);
+        let deposit_amt = Pontem::value(&to_deposit);
 
-        Dfinance::deposit<Offered>(&mut offer.deposit, to_deposit);
+        Pontem::deposit<Offered>(&mut offer.deposit, to_deposit);
 
         Event::emit(account, OfferDepositedEvent<Offered, Collateral> {
             deposit_amt,
@@ -273,7 +273,7 @@ module CDP {
     public fun withdraw<Offered: copyable, Collateral: copyable>(
         account: &signer,
         withdraw_amt: u128
-    ): Dfinance::T<Offered> acquires Offer {
+    ): Pontem::T<Offered> acquires Offer {
         let lender = Signer::address_of(account);
         assert(
             exists<Offer<Offered, Collateral>>(lender),
@@ -281,20 +281,20 @@ module CDP {
         );
         let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
 
-        assert(withdraw_amt <= Dfinance::value(&offer.deposit), ERR_CANT_WITHDRAW);
+        assert(withdraw_amt <= Pontem::value(&offer.deposit), ERR_CANT_WITHDRAW);
 
         Event::emit(account, OfferWithdrawalEvent<Offered, Collateral> {
             withdraw_amt,
             lender
         });
 
-        Dfinance::withdraw(&mut offer.deposit, withdraw_amt)
+        Pontem::withdraw(&mut offer.deposit, withdraw_amt)
     }
 
     /// Withdraw whole deposit from Offer, only owner can do it
     public fun withdraw_all<Offered: copyable, Collateral: copyable>(
         account: &signer,
-    ): Dfinance::T<Offered> acquires Offer {
+    ): Pontem::T<Offered> acquires Offer {
         let lender = Signer::address_of(account);
         assert(
             exists<Offer<Offered, Collateral>>(lender),
@@ -302,14 +302,14 @@ module CDP {
         );
         let offer  = borrow_global_mut<Offer<Offered, Collateral>>(lender);
 
-        let withdraw_amt = Dfinance::value(&offer.deposit);
+        let withdraw_amt = Pontem::value(&offer.deposit);
 
         Event::emit(account, OfferWithdrawalEvent<Offered, Collateral> {
             withdraw_amt,
             lender
         });
 
-        Dfinance::withdraw(&mut offer.deposit, withdraw_amt)
+        Pontem::withdraw(&mut offer.deposit, withdraw_amt)
     }
 
     /// Make deal with existing Offer (or Bank). Ask for some amount
@@ -318,9 +318,9 @@ module CDP {
     public fun make_deal<Offered: copyable, Collateral: copyable>(
         account: &signer,
         lender: address,
-        collateral: Dfinance::T<Collateral>,
+        collateral: Pontem::T<Collateral>,
         amount_wanted: u128,
-    ): (Dfinance::T<Offered>, Security<CDP<Offered, Collateral>>) acquires Offer {
+    ): (Pontem::T<Offered>, Security<CDP<Offered, Collateral>>) acquires Offer {
         assert(
             exists<Offer<Offered, Collateral>>(lender),
             ERR_OFFER_DOES_NOT_EXIST
@@ -328,9 +328,9 @@ module CDP {
 
         let price = num(Coins::get_price<Collateral, Offered>(), EXCHANGE_RATE_DECIMALS);
 
-        let offered_dec    = Dfinance::decimals<Offered>();
-        let collateral_dec = Dfinance::decimals<Collateral>();
-        let collateral_amt = Dfinance::value(&collateral);
+        let offered_dec    = Pontem::decimals<Offered>();
+        let collateral_dec = Pontem::decimals<Collateral>();
+        let collateral_amt = Pontem::value(&collateral);
 
         assert(amount_wanted > 0, ERR_ZERO_AMOUNT);
         assert(collateral_amt > 0, ERR_ZERO_AMOUNT);
@@ -362,7 +362,7 @@ module CDP {
         assert(offer.is_active, ERR_OFFER_INACTIVE);
         assert(ltv >= min_ltv && ltv <= MAX_LTV, ERR_INCORRECT_LTV); // Offer LTV = MIN LTV
 
-        let offered = Dfinance::withdraw<Offered>(&mut offer.deposit, amount_wanted);
+        let offered = Pontem::withdraw<Offered>(&mut offer.deposit, amount_wanted);
         let deal_id = offer.deals_made;
 
         // Issue Security for this deal which will hold the deal params in it
@@ -392,7 +392,7 @@ module CDP {
         // Update the bank with proof and collateral
         Vector::push_back(&mut offer.deals, deal);
         Vector::push_back(&mut offer.proofs, proof);
-        Dfinance::deposit(&mut offer.collateral, collateral);
+        Pontem::deposit(&mut offer.collateral, collateral);
 
         offer.deals_made = deal_id + 1;
 
@@ -496,7 +496,7 @@ module CDP {
         } = Vector::remove(&mut offer.deals, pos);
 
         // If Hard MC is reached, then we can destroy the deal
-        let collateral = Dfinance::withdraw(&mut offer.collateral, collateral_amt);
+        let collateral = Pontem::withdraw(&mut offer.collateral, collateral_amt);
 
         // Give Collateral to the lender
         Account::deposit<Collateral>(account, lender, collateral);
@@ -527,7 +527,7 @@ module CDP {
     public fun pay_back<Offered: copyable, Collateral: copyable>(
         account: &signer,
         security: Security<CDP<Offered, Collateral>>,
-    ): Dfinance::T<Collateral> acquires Offer {
+    ): Pontem::T<Collateral> acquires Offer {
         let lender = Security::borrow(&security).lender;
         assert(
             exists<Offer<Offered, Collateral>>(lender),
@@ -553,7 +553,7 @@ module CDP {
             collateral_amt
         } = Vector::remove(&mut offer.deals, pos);
 
-        let offered_decimals = Dfinance::decimals<Offered>();
+        let offered_decimals = Pontem::decimals<Offered>();
         let offered_num = num(offered_amt, offered_decimals);
 
         // Interest rate calculations
@@ -588,9 +588,9 @@ module CDP {
 
         // Return money by making a direct trasfer
         let offered_paid = Account::withdraw_from_sender(account, pay_back_amt);
-        Dfinance::deposit<Offered>(&mut offer.deposit, offered_paid);
+        Pontem::deposit<Offered>(&mut offer.deposit, offered_paid);
 
-        let collateral = Dfinance::withdraw(&mut offer.collateral, collateral_amt);
+        let collateral = Pontem::withdraw(&mut offer.collateral, collateral_amt);
 
         Event::emit(account, DealClosedPayBackEvent<Offered, Collateral> {
             ltv,
