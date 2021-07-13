@@ -10,7 +10,6 @@ module CDP {
     use 0x1::Math::num;
 
     const GLOBAL_MAX_LTV: u64 = 8500;  // 85.00%
-    const GLOBAL_MAX_INTEREST_RATE: u64 = 10000;  // 100.00%
     const HARD_MARGIN_CALL: u128 = 130;
 
     const STATUS_HARD_MC: u8 = 91;
@@ -42,18 +41,20 @@ module CDP {
     resource struct Bank<Offered: copyable, Collateral: copyable> {
         deposit: Dfinance::T<Offered>,
 
-        /// Loan-to-Value ratio: [0, 6600] (2 signs after comma)
+        /// Loan-to-Value ratio: [0, 8500] (2 signs after comma)
+        /// Mediates max number of tokens user can get for their collateral
         max_ltv: u64,
         /// loan interest rate: [0, 10000] (2 signs after comma)
         interest_rate_per_year: u64,
         /// whether this bank can be used for new cdp deals
         is_active: bool,
-
+        /// max number of days CDP deal can be created for
         max_loan_term_in_days: u64,
-        active_deals_count: u64,
+        /// used for the identification of Deal events
         next_deal_id: u64,
     }
 
+    /// create Bank resource on the `owner_acc` address to use for borrowing later on
     public fun create_bank<Offered: copyable, Collateral: copyable>(
         owner_acc: &signer,
         deposit: Dfinance::T<Offered>,
@@ -62,11 +63,11 @@ module CDP {
         max_loan_term_in_days: u64,
     ) {
         assert(Coins::has_price<Offered, Collateral>(), ERR_NO_ORACLE_PRICE);
+        // 85% LTV is instant hard margin call, so can't create a Deal with more than that
         assert(0u64 < max_ltv && max_ltv <= GLOBAL_MAX_LTV, ERR_INCORRECT_LTV);
-        assert(interest_rate_per_year <= GLOBAL_MAX_INTEREST_RATE, ERR_INCORRECT_INTEREST_RATE);
 
         let deposit_amount = Dfinance::value(&deposit);
-
+        // add Bank with Offered tokens as deposit, to borrow with Collateral tokens
         let bank =
             Bank<Offered, Collateral> {
                 deposit,
@@ -74,7 +75,6 @@ module CDP {
                 interest_rate_per_year,
                 is_active: true,
                 max_loan_term_in_days,
-                active_deals_count: 0,
                 next_deal_id: 1
             };
         move_to(owner_acc, bank);
@@ -90,7 +90,9 @@ module CDP {
             });
     }
 
+    /// add more available tokens for the Bank
     public fun add_deposit<Offered: copyable, Collateral: copyable>(
+        /// pass current available &signer for the events
         acc: &signer,
         bank_addr: address,
         deposit: Dfinance::T<Offered>,
@@ -99,7 +101,6 @@ module CDP {
             exists<Bank<Offered, Collateral>>(bank_addr),
             ERR_BANK_DOES_NOT_EXIST
         );
-
         let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
         Dfinance::deposit(&mut bank.deposit, deposit);
         Event::emit(
@@ -139,10 +140,6 @@ module CDP {
         owner_acc: &signer,
         interest_rate_per_year: u64,
     ) acquires Bank {
-        assert(
-            interest_rate_per_year < GLOBAL_MAX_INTEREST_RATE,
-            ERR_INCORRECT_INTEREST_RATE
-        );
         let bank_addr = Signer::address_of(owner_acc);
         assert(
             exists<Bank<Offered, Collateral>>(bank_addr),
@@ -255,7 +252,6 @@ module CDP {
         assert(deal_ltv <= bank.max_ltv, ERR_INCORRECT_LTV);
 
         move_to(borrower_acc, deal);
-        bank.active_deals_count = bank.active_deals_count + 1;
         bank.next_deal_id = bank.next_deal_id + 1;
 
         let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, loan_amount);
@@ -313,6 +309,7 @@ module CDP {
     }
 
     public fun pay_back_partially<Offered: copyable, Collateral: copyable>(
+        /// pass current available &signer for the events
         acc: &signer,
         borrower_addr: address,
         offered: Dfinance::T<Offered>
@@ -351,6 +348,7 @@ module CDP {
     }
 
     public fun add_collateral<Offered: copyable, Collateral: copyable>(
+        /// pass current available &signer for the events
         acc: &signer,
         borrower_addr: address,
         collateral: Dfinance::T<Collateral>
@@ -371,6 +369,7 @@ module CDP {
     }
 
     public fun collect_interest_rate<Offered: copyable, Collateral: copyable>(
+        /// pass current available &signer for the events
         acc: &signer,
         borrower_addr: address,
     ): Dfinance::T<Collateral> acquires Deal {
@@ -407,10 +406,12 @@ module CDP {
         interest_collateral
     }
 
+    /// closes Deal if either 91 (hard margin call) or 92 (loan expiration) Deal statuses reached
     public fun close_deal_by_termination_status<Offered: copyable, Collateral: copyable>(
+        /// pass current available &signer for the events
         acc: &signer,
         borrower_addr: address
-    ) acquires Deal, Bank {
+    ) acquires Deal {
         assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
 
         let deal_status = get_deal_status<Offered, Collateral>(borrower_addr);
@@ -432,9 +433,6 @@ module CDP {
             loan_term_in_days: _,
             interest_rate_per_year: _,
         } = deal;
-
-        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_owner_addr);
-        bank.active_deals_count = bank.active_deals_count - 1;
 
         let collateral_decimals = Dfinance::decimals<Collateral>();
         let collateral_num = num(Dfinance::value(&collateral), collateral_decimals);
@@ -474,7 +472,9 @@ module CDP {
             })
     }
 
+    /// provide enough tokens in Offered coin to cover Deal loan amount
     public fun pay_back<Offered: copyable, Collateral: copyable>(
+        /// pass current available &signer for the events
         acc: &signer,
         borrower_addr: address,
         offered: Dfinance::T<Offered>,
@@ -487,7 +487,7 @@ module CDP {
         let loan_amount_with_interest = Math::scale_to_decimals(
             copy loan_amount_with_interest_num, offered_decimals);
         assert(
-            Dfinance::value(&offered) == loan_amount_with_interest,
+            Dfinance::value(&offered) >= loan_amount_with_interest,
             ERR_INVALID_PAYBACK_AMOUNT
         );
         let Deal {
@@ -514,6 +514,7 @@ module CDP {
         collateral
     }
 
+    /// get size of the current Deal loan for the borrower
     public fun get_loan_amount<Offered: copyable, Collateral: copyable>(
         borrower_addr: address
     ): Math::Num acquires Deal {
@@ -521,6 +522,10 @@ module CDP {
         compute_loan_amount_with_interest(deal)
     }
 
+    /// get status of the Deal:
+    /// 91 (STATUS_HARD_MC) - if hard margin call is reached and deal could be closed
+    /// 92 (STATUS_EXPIRED) - if number of days since opening of the deal exceeded the loan term
+    /// 93 (STATUS_VALID_CDP) - no termination conditions occurred
     public fun get_deal_status<Offered: copyable, Collateral: copyable>(
         borrower_addr: address
     ): u8 acquires Deal {
@@ -551,8 +556,10 @@ module CDP {
     fun compute_loan_amount_with_interest<Offered: copyable, Collateral: copyable>(
         deal: &Deal<Offered, Collateral>,
     ): Math::Num {
+        // Interest Multiplier = Days Passed * Interest Rate per Day
         let interest_multiplier = compute_interest_rate_multiplier(deal);
         let loan_amount_num = *&deal.loan_amount_num;
+        // Loan Amount With Interest = Loan Amount + Loan Amount * Interest Multiplier
         let offered_with_interest_num =
             Math::add(
                 copy loan_amount_num,
@@ -561,24 +568,24 @@ module CDP {
         offered_with_interest_num
     }
 
+    /// Multiplier = Days since Deal opened * (Interest Rate Per Year / 365)
     fun compute_interest_rate_multiplier<Offered: copyable, Collateral: copyable>(
         deal: &Deal<Offered, Collateral>
     ): Math::Num {
+        // Interest Rate Per Day = Interest Rate Per Year / 365
+        let interest_rate_num = num((deal.interest_rate_per_year as u128), INTEREST_RATE_DECIMALS);
+        let interest_rate_per_day =
+            Math::div(interest_rate_num, num(365, 0));
+
+        // if collect_interest_rate_from is non-zero, then we've already collected zero day interest once
         let zero_day_interest_collected = deal.collect_interest_rate_from != 0;
+        // if it's zero, then use `deal.created_at` as starting day
         let collect_interest_rate_from =
             if (zero_day_interest_collected) deal.collect_interest_rate_from else deal.created_at;
         let days_passed =
             Time::days_from(collect_interest_rate_from) + (if (!zero_day_interest_collected) 1 else 0);
         let days_passed_num = num((days_passed as u128), 0);
-        let interest_rate_num = num((deal.interest_rate_per_year as u128), INTEREST_RATE_DECIMALS);
-        let days_in_year = num(365, 0);
-        Math::div(Math::mul(days_passed_num, interest_rate_num), days_in_year)
-    }
-
-    fun compute_margin_call(offered_num: Math::Num): Math::Num {
-        // HMC = OFFERED_COINS * 1.3
-        let hard_mc_multiplier = num(HARD_MARGIN_CALL, 2);
-        Math::mul(offered_num, hard_mc_multiplier)
+        Math::mul(days_passed_num, interest_rate_per_day)
     }
 
     fun compute_ltv<Offered: copyable, Collateral: copyable>(
