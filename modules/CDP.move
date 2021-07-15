@@ -255,13 +255,14 @@ module CDP {
         bank.next_deal_id = bank.next_deal_id + 1;
 
         let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, loan_amount);
+        let loan_amount = Math::scale_to_decimals(loan_amount_num, 18);
         Event::emit(
             borrower_acc,
             DealCreatedEvent<Offered, Collateral> {
                 borrower_addr: Signer::address_of(borrower_acc),
                 bank_owner_addr: bank_addr,
                 deal_id,
-                loan_amount_num,
+                loan_amount,
                 collateral_amount,
                 loan_term_in_days,
                 interest_rate_per_year,
@@ -459,13 +460,14 @@ module CDP {
             borrower_collateral_amount = 0;
             Account::deposit(acc, bank_owner_addr, collateral);
         };
+        let loan_amount = Math::scale_to_decimals(loan_amount_num, 18);
         Event::emit(
             acc,
             DealTerminatedEvent<Offered, Collateral> {
                 borrower_addr,
                 bank_owner_addr,
                 deal_id,
-                loan_amount_num,
+                loan_amount,
                 owner_collateral_amount,
                 borrower_collateral_amount,
                 termination_status: deal_status
@@ -502,13 +504,15 @@ module CDP {
         } = deal;
 
         Account::deposit(acc, bank_owner_addr, offered);
+
+        let loan_amount_with_interest = Math::scale_to_decimals(loan_amount_with_interest_num, 18);
         Event::emit(
             acc,
             DealPaidBackEvent<Offered, Collateral> {
                 borrower_addr,
                 bank_owner_addr,
                 deal_id,
-                loan_amount_with_interest_num,
+                loan_amount_with_interest,
                 collateral_amount: Dfinance::value(&collateral),
             });
         collateral
@@ -641,7 +645,7 @@ module CDP {
         borrower_addr: address,
         bank_owner_addr: address,
         deal_id: u64,
-        loan_amount_num: Math::Num,
+        loan_amount: u128,
         collateral_amount: u128,
         loan_term_in_days: u64,
         interest_rate_per_year: u64,
@@ -679,7 +683,7 @@ module CDP {
         borrower_addr: address,
         bank_owner_addr: address,
         deal_id: u64,
-        loan_amount_num: Math::Num,
+        loan_amount: u128,
         owner_collateral_amount: u128,
         borrower_collateral_amount: u128,
         termination_status: u8,
@@ -689,7 +693,7 @@ module CDP {
         borrower_addr: address,
         bank_owner_addr: address,
         deal_id: u64,
-        loan_amount_with_interest_num: Math::Num,
+        loan_amount_with_interest: u128,
         collateral_amount: u128,
     }
 }
