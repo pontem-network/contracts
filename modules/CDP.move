@@ -369,6 +369,36 @@ module CDP {
             });
     }
 
+    public fun get_collateral<Offered: copyable, Collateral: copyable>(
+        acc: &signer,
+        borrower_addr: address,
+        collateral_amount: u128
+    ): Dfinance::T<Collateral> acquires Deal, Bank {
+        assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
+
+        let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(deal.bank_owner_addr);
+
+        let withdrawn_collateral = Dfinance::withdraw(&mut deal.collateral, collateral_amount);
+        let remaining_collateral = Dfinance::value(&deal.collateral);
+
+        let new_loan_amount_num = compute_loan_amount_with_interest(deal);
+        let new_deal_ltv =
+            compute_ltv<Offered, Collateral>(remaining_collateral, new_loan_amount_num);
+        assert(new_deal_ltv <= bank.max_ltv, ERR_INCORRECT_LTV);
+
+        Event::emit(
+            acc,
+            DealCollateralRemovedEvent<Offered, Collateral> {
+                borrower_addr,
+                bank_owner_addr: deal.bank_owner_addr,
+                deal_id: deal.deal_id,
+                collateral_removed_amount: collateral_amount,
+            }
+        );
+        withdrawn_collateral
+    }
+
     public fun collect_interest_rate<Offered: copyable, Collateral: copyable>(
         /// pass current available &signer for the events
         acc: &signer,
@@ -670,6 +700,13 @@ module CDP {
         bank_owner_addr: address,
         deal_id: u64,
         collateral_added_amount: u128
+    }
+
+    struct DealCollateralRemovedEvent<Offered: copyable, Collateral: copyable> {
+        borrower_addr: address,
+        bank_owner_addr: address,
+        deal_id: u64,
+        collateral_removed_amount: u128
     }
 
     struct DealInterestCollectedEvent<Offered: copyable, Collateral: copyable> {
