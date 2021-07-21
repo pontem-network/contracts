@@ -149,7 +149,7 @@ script {
     use 0x1::Coins::{ETH, BTC};
 
     fun add_more_collateral(borrower_acc: &signer) {
-        let new_collateral_num = num(10, 1);  // 0.5 BTC
+        let new_collateral_num = num(10, 1);  // 1 BTC
         let new_collateral_amount = Math::scale_to_decimals(new_collateral_num, 10);
         let new_collateral = Dfinance::mint(new_collateral_amount);
 
@@ -161,6 +161,33 @@ script {
         assert(status == 93, 1);
     }
 }
+
+/// signers: 0x102
+/// price: eth_btc 8000000000
+/// current_time: 400
+/// aborts_with: 103
+script {
+    use 0x1::CDP;
+    use 0x1::Account;
+    use 0x1::Signer;
+    use 0x1::Dfinance;
+    use 0x1::Math::num;
+    use 0x1::Math;
+    use 0x1::Coins::{ETH, BTC};
+
+    fun cannot_withdraw_collateral_if_ltv_is_too_big(borrower_acc: &signer) {
+        let withdrawn_collateral_num = num(15, 1);  // 1.5 BTC
+        let withdrawn_collateral_amount = Math::scale_to_decimals(withdrawn_collateral_num, 10);
+
+        let borrower_addr = Signer::address_of(borrower_acc);
+        let withdrawn_collateral =
+            CDP::get_collateral<ETH, BTC>(borrower_acc, borrower_addr, withdrawn_collateral_amount);
+        assert(Dfinance::value(&withdrawn_collateral) == withdrawn_collateral_amount, 1);
+
+        Account::deposit_to_sender(borrower_acc, withdrawn_collateral);
+    }
+}
+
 
 /// signers: 0x102
 /// price: eth_btc 8000000000
