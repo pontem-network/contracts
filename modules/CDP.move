@@ -282,7 +282,6 @@ module CDP {
         bank.next_deal_id = bank.next_deal_id + 1;
 
         let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, loan_amount);
-        let loan_amount = Math::scale_to_decimals(loan_amount_num, offered_decimals);
         Event::emit(
             borrower_acc,
             DealCreatedEvent<Offered, Collateral> {
