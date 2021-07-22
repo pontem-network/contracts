@@ -337,7 +337,7 @@ module CDP {
     }
 
     public fun pay_back_partially<Offered: copyable, Collateral: copyable>(
-        /// pass current available &signer for the events
+        // pass current available &signer for the events
         acc: &signer,
         borrower_addr: address,
         offered: Dfinance::T<Offered>
@@ -376,7 +376,7 @@ module CDP {
     }
 
     public fun add_collateral<Offered: copyable, Collateral: copyable>(
-        /// pass current available &signer for the events
+        // pass current available &signer for the events
         acc: &signer,
         borrower_addr: address,
         collateral: Dfinance::T<Collateral>
@@ -426,7 +426,7 @@ module CDP {
     }
 
     public fun collect_interest_rate<Offered: copyable, Collateral: copyable>(
-        /// pass current available &signer for the events
+        // pass current available &signer for the events
         acc: &signer,
         borrower_addr: address,
     ): Dfinance::T<Collateral> acquires Deal {
@@ -465,7 +465,7 @@ module CDP {
 
     /// closes Deal if either 91 (hard margin call) or 92 (loan expiration) Deal statuses reached
     public fun close_deal_by_termination_status<Offered: copyable, Collateral: copyable>(
-        /// pass current available &signer for the events
+        // pass current available &signer for the events
         acc: &signer,
         borrower_addr: address
     ) acquires Deal {
@@ -533,7 +533,7 @@ module CDP {
 
     /// provide enough tokens in Offered coin to cover Deal loan amount
     public fun pay_back<Offered: copyable, Collateral: copyable>(
-        /// pass current available &signer for the events
+        // pass current available &signer for the events
         acc: &signer,
         borrower_addr: address,
         offered: Dfinance::T<Offered>,
