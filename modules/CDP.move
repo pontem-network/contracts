@@ -92,7 +92,7 @@ module CDP {
 
     /// add more available tokens for the Bank
     public fun add_deposit<Offered: copyable, Collateral: copyable>(
-        /// pass current available &signer for the events
+        // pass current available &signer for the events
         acc: &signer,
         bank_addr: address,
         deposit: Dfinance::T<Offered>,
