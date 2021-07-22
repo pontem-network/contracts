@@ -264,6 +264,7 @@ module CDP {
                 deal_id,
                 loan_amount,
                 collateral_amount,
+                bank_max_ltv: bank.max_ltv,
                 loan_term_in_days,
                 interest_rate_per_year,
             });
@@ -677,6 +678,7 @@ module CDP {
         deal_id: u64,
         loan_amount: u128,
         collateral_amount: u128,
+        bank_max_ltv: u64,
         loan_term_in_days: u64,
         interest_rate_per_year: u64,
     }
