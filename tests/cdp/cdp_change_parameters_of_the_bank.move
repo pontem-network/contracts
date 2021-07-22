@@ -42,6 +42,19 @@ script {
 }
 
 
+/// signers: 0x101
+/// price: eth_btc 10000000000
+/// current_time: 100
+script {
+    use 0x1::Coins::{ETH, BTC};
+
+    use 0x1::CDP;
+
+    fun change_max_ltv_of_the_bank(owner_acc: &signer) {
+        CDP::set_bank_max_ltv<ETH, BTC>(owner_acc, 6500);
+    }
+}
+
 /// signers: 0x103
 /// price: eth_btc 10000000000
 /// current_time: 100

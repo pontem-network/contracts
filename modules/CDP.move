@@ -191,6 +191,31 @@ module CDP {
         bank.is_active = is_active;
     }
 
+    public fun set_bank_max_ltv<Offered: copyable, Collateral: copyable>(
+        owner_acc: &signer,
+        max_ltv: u64,
+    ) acquires Bank {
+        // 85% LTV is instant hard margin call, so can't create a Deal with more than that
+        assert(0u64 < max_ltv && max_ltv <= GLOBAL_MAX_LTV, ERR_INCORRECT_LTV);
+
+        let bank_addr = Signer::address_of(owner_acc);
+        assert(
+            exists<Bank<Offered, Collateral>>(bank_addr),
+            ERR_BANK_DOES_NOT_EXIST
+        );
+
+        let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
+        bank.max_ltv = max_ltv;
+
+        Event::emit(
+            owner_acc,
+            BankChangeMaxLTV<Offered, Collateral> {
+                owner: bank_addr,
+                max_ltv
+            }
+        )
+    }
+
     resource struct Deal<Offered: copyable, Collateral: copyable> {
         deal_id: u64,
         bank_owner_addr: address,
@@ -199,6 +224,7 @@ module CDP {
         created_at: u64,
         // 0 means that created_at should be used
         collect_interest_rate_from: u64,
+        bank_max_ltv: u64,
         loan_term_in_days: u64,
         interest_rate_per_year: u64,
     }
@@ -238,6 +264,7 @@ module CDP {
             loan_amount_num: copy loan_amount_num,
             created_at: Time::now(),
             collect_interest_rate_from: 0,
+            bank_max_ltv: bank.max_ltv,
             interest_rate_per_year,
             loan_term_in_days,
         };
@@ -296,7 +323,7 @@ module CDP {
 
         let new_loan_amount_num = compute_loan_amount_with_interest(deal);
         let new_deal_ltv = compute_ltv<Offered, Collateral>(collateral_amount, new_loan_amount_num);
-        assert(new_deal_ltv <= bank.max_ltv, ERR_INCORRECT_LTV);
+        assert(new_deal_ltv <= deal.bank_max_ltv, ERR_INCORRECT_LTV);
 
         let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, new_loan_amount);
         Event::emit(
@@ -374,11 +401,10 @@ module CDP {
         acc: &signer,
         borrower_addr: address,
         collateral_amount: u128
-    ): Dfinance::T<Collateral> acquires Deal, Bank {
+    ): Dfinance::T<Collateral> acquires Deal {
         assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
 
         let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
-        let bank = borrow_global_mut<Bank<Offered, Collateral>>(deal.bank_owner_addr);
 
         let withdrawn_collateral = Dfinance::withdraw(&mut deal.collateral, collateral_amount);
         let remaining_collateral = Dfinance::value(&deal.collateral);
@@ -386,7 +412,7 @@ module CDP {
         let new_loan_amount_num = compute_loan_amount_with_interest(deal);
         let new_deal_ltv =
             compute_ltv<Offered, Collateral>(remaining_collateral, new_loan_amount_num);
-        assert(new_deal_ltv <= bank.max_ltv, ERR_INCORRECT_LTV);
+        assert(new_deal_ltv <= deal.bank_max_ltv, ERR_INCORRECT_LTV);
 
         Event::emit(
             acc,
@@ -462,6 +488,7 @@ module CDP {
             loan_amount_num,
             created_at: _,
             collect_interest_rate_from: _,
+            bank_max_ltv: _,
             loan_term_in_days: _,
             interest_rate_per_year: _,
         } = deal;
@@ -530,6 +557,7 @@ module CDP {
             loan_amount_num: _,
             created_at: _,
             collect_interest_rate_from: _,
+            bank_max_ltv: _,
             loan_term_in_days: _,
             interest_rate_per_year: _,
         } = deal;
@@ -670,6 +698,11 @@ module CDP {
     struct BankChangeActiveStatus<Offered: copyable, Collateral: copyable> {
         owner: address,
         is_active: bool
+    }
+
+    struct BankChangeMaxLTV<Offered: copyable, Collateral: copyable> {
+        owner: address,
+        max_ltv: u64
     }
 
     struct DealCreatedEvent<Offered: copyable, Collateral: copyable> {
