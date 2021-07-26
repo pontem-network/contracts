@@ -1,11 +1,10 @@
 /// signers: 0x1
 script {
     use 0x1::Dfinance;
-    use 0x1::Coins::{ETH, BTC, USDT};
+    use 0x1::Coins::{BTC, USDT};
 
     fun register_coins(std_acc: &signer) {
         Dfinance::register_coin<BTC>(std_acc, b"btc", 10);
-        Dfinance::register_coin<ETH>(std_acc, b"eth", 18);
         Dfinance::register_coin<USDT>(std_acc, b"usdt", 6);
     }
 }
@@ -172,10 +171,10 @@ script {
 /// aborts_with: 303
 script {
     use 0x1::CDP;
-    use 0x1::Coins::{ETH, BTC};
+    use 0x1::Coins::{USDT, BTC};
 
     fun deal_does_not_exist_after_closing_by_expiration(owner_acc: &signer) {
         let borrower_addr = 0x102;
-        CDP::close_deal_by_termination_status<ETH, BTC>(owner_acc, borrower_addr);
+        CDP::close_deal_by_termination_status<BTC, USDT>(owner_acc, borrower_addr);
     }
 }
