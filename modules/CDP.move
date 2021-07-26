@@ -383,6 +383,7 @@ module CDP {
     ) acquires Deal {
         assert(exists<Deal<Offered, Collateral>>(borrower_addr), ERR_DEAL_DOES_NOT_EXIST);
 
+        // 4648500000000000
         let deal = borrow_global_mut<Deal<Offered, Collateral>>(borrower_addr);
         let collateral_amount = Dfinance::value(&collateral);
         Dfinance::deposit(&mut deal.collateral, collateral);

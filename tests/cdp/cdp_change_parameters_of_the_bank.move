@@ -55,6 +55,20 @@ script {
     }
 }
 
+/// signers: 0x101
+/// price: eth_btc 10000000000
+/// current_time: 100
+/// aborts_with: 103
+script {
+    use 0x1::Coins::{ETH, BTC};
+
+    use 0x1::CDP;
+
+    fun cannot_change_max_ltv_of_the_bank_to_110(owner_acc: &signer) {
+        CDP::set_bank_max_ltv<ETH, BTC>(owner_acc, 10000);
+    }
+}
+
 /// signers: 0x103
 /// price: eth_btc 10000000000
 /// current_time: 100
