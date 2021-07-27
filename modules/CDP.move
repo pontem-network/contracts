@@ -276,18 +276,21 @@ module CDP {
                 collateral_amount,
                 loan_amount_with_one_day_interest
             );
-        assert(deal_ltv <= bank.max_ltv, ERR_INCORRECT_LTV);
 
+        assert(deal_ltv <= bank.max_ltv, ERR_INCORRECT_LTV);
         move_to(borrower_acc, deal);
         bank.next_deal_id = bank.next_deal_id + 1;
-
         let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, loan_amount);
+        let price = Coins::get_price<Offered, Collateral>();
+
         Event::emit(
             borrower_acc,
             DealCreatedEvent<Offered, Collateral> {
                 borrower_addr: Signer::address_of(borrower_acc),
                 bank_owner_addr: bank_addr,
                 deal_id,
+                deal_ltv,
+                price,
                 loan_amount,
                 collateral_amount,
                 bank_max_ltv: bank.max_ltv,
@@ -662,8 +665,8 @@ module CDP {
         let price_num = num(price, EXCHANGE_RATE_DECIMALS);
 
         let ltv_num = Math::div(
-            loan_amount_num,
-            Math::mul(collateral_num, price_num)
+            Math::mul(loan_amount_num, price_num),
+            collateral_num
         );
         ((Math::scale_to_decimals(ltv_num, 2) * 100) as u64)
     }
@@ -709,6 +712,8 @@ module CDP {
         borrower_addr: address,
         bank_owner_addr: address,
         deal_id: u64,
+        deal_ltv: u64,
+        price: u128,
         loan_amount: u128,
         collateral_amount: u128,
         bank_max_ltv: u64,
