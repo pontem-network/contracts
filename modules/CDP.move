@@ -189,6 +189,12 @@ module CDP {
 
         let bank = borrow_global_mut<Bank<Offered, Collateral>>(bank_addr);
         bank.is_active = is_active;
+        Event::emit(
+            owner_acc,
+            BankChangeActiveStatus<Offered, Collateral> {
+                owner: bank_addr,
+                is_active: is_active,
+            });
     }
 
     public fun set_bank_max_ltv<Offered: copyable, Collateral: copyable>(
