@@ -287,8 +287,8 @@ module CDP {
         move_to(borrower_acc, deal);
         bank.next_deal_id = bank.next_deal_id + 1;
         let offered = Dfinance::withdraw<Offered>(&mut bank.deposit, loan_amount);
-        let price = Coins::get_price<Offered, Collateral>();
 
+        let price = Coins::get_price<Offered, Collateral>();
         Event::emit(
             borrower_acc,
             DealCreatedEvent<Offered, Collateral> {
@@ -450,9 +450,8 @@ module CDP {
         let interest_multiplier = compute_interest_rate_multiplier(deal);
 
         let loan_interest_num = Math::mul(loan_amount_num, interest_multiplier);
-        let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
+        let loan_interest_in_collateral_num = convert_currencies<Offered, Collateral>(loan_interest_num);
 
-        let loan_interest_in_collateral_num = Math::div(loan_interest_num, price_num);
         let collateral_decimals = Dfinance::decimals<Collateral>();
         let loan_interest_in_collateral_amount = Math::scale_to_decimals(
             loan_interest_in_collateral_num,
@@ -488,7 +487,6 @@ module CDP {
         );
 
         let deal = move_from<Deal<Offered, Collateral>>(borrower_addr);
-        let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
         let loan_amount_with_interest_num = compute_loan_amount_with_interest<Offered, Collateral>(&deal);
         let Deal {
             deal_id,
@@ -502,18 +500,18 @@ module CDP {
             interest_rate_per_year: _,
         } = deal;
 
+        let loan_amount_with_interest_in_collateral_num =
+            convert_currencies<Offered, Collateral>(loan_amount_with_interest_num);
+
         let collateral_decimals = Dfinance::decimals<Collateral>();
         let collateral_num = num(Dfinance::value(&collateral), collateral_decimals);
-        let collateral_in_offered_num =
-            Math::mul(copy price_num, collateral_num);
 
         let borrower_collateral_amount;
         let owner_collateral_amount;
-        if (math_lt(copy loan_amount_with_interest_num, collateral_in_offered_num)) {
-            let owner_collateral_num =
-                Math::div(loan_amount_with_interest_num, price_num);
+        // loan amount < collateral worth => split collateral into Loan and Return parts
+        if (math_lt(copy loan_amount_with_interest_in_collateral_num, collateral_num)) {
             owner_collateral_amount =
-                Math::scale_to_decimals(owner_collateral_num, collateral_decimals);
+                Math::scale_to_decimals(loan_amount_with_interest_in_collateral_num, collateral_decimals);
             // pay bank with collateral amount of the loan
             let owner_collateral = Dfinance::withdraw(&mut collateral, owner_collateral_amount);
             Account::deposit(acc, bank_owner_addr, owner_collateral);
@@ -606,14 +604,12 @@ module CDP {
         let collateral_amount = Dfinance::value(&deal.collateral);
         let collateral_decimals = Dfinance::decimals<Collateral>();
         let collateral_num = num(collateral_amount, collateral_decimals);
-        let price_num = num(Coins::get_price<Offered, Collateral>(), EXCHANGE_RATE_DECIMALS);
-
-        let offered_for_collateral = Math::mul(copy price_num, collateral_num);
+        let collateral_worth_in_offered_num = convert_currencies<Collateral, Offered>(collateral_num);
 
         let hard_mc_multiplier = num(HARD_MARGIN_CALL, MARGIN_CALL_DECIMALS);
         let loan_amount_with_interest_num = compute_loan_amount_with_interest(deal);
         let hard_mc_num = Math::mul(loan_amount_with_interest_num, hard_mc_multiplier);
-        if (Math::scale_to_decimals(offered_for_collateral, 18)
+        if (Math::scale_to_decimals(collateral_worth_in_offered_num, 18)
             <= Math::scale_to_decimals(hard_mc_num, 18)) {
             return STATUS_HARD_MC
         };
@@ -664,17 +660,19 @@ module CDP {
         collateral_amount: u128,
         loan_amount_num: Math::Num
     ): u64 {
-        let price = Coins::get_price<Offered, Collateral>();
-        let collateral_dec = Dfinance::decimals<Collateral>();
-        let collateral_num = num(collateral_amount, collateral_dec);
+        let collateral_num = num(collateral_amount, Dfinance::decimals<Collateral>());
 
-        let price_num = num(price, EXCHANGE_RATE_DECIMALS);
-
+        let loan_amount_in_collateral = convert_currencies<Offered, Collateral>(loan_amount_num);
         let ltv_num = Math::div(
-            Math::mul(loan_amount_num, price_num),
-            collateral_num
+            loan_amount_in_collateral, collateral_num
         );
         ((Math::scale_to_decimals(ltv_num, 2) * 100) as u64)
+    }
+
+    fun convert_currencies<From: copyable, To: copyable>(amount_num: Math::Num): Math::Num {
+        let price = Coins::get_price<From, To>();
+        let price_num = num(price, EXCHANGE_RATE_DECIMALS);
+        Math::mul(amount_num, price_num)
     }
 
     fun math_lt(l: Math::Num, r: Math::Num): bool {
