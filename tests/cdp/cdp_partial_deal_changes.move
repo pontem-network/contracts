@@ -1,40 +1,38 @@
 /// signers: 0x1
 script {
     use 0x1::Dfinance;
-    use 0x1::Coins::{ETH, BTC};
+    use 0x1::Coins::{BTC, USDT};
 
     fun register_coins(std_acc: &signer) {
         Dfinance::register_coin<BTC>(std_acc, b"btc", 10);
-        Dfinance::register_coin<ETH>(std_acc, b"eth", 18);
+        Dfinance::register_coin<USDT>(std_acc, b"usdt", 6);
     }
 }
 
 /// signers: 0x101
-/// price: eth_btc 10000000000
+/// price: btc_usdt 4460251000000
 /// current_time: 100
 script {
     use 0x1::Math;
     use 0x1::Math::num;
     use 0x1::Dfinance;
-    use 0x1::Coins::{ETH, BTC};
-
+    use 0x1::Coins::{BTC, USDT};
     use 0x1::CDP;
 
-    fun mint_some_eth_and_create_bank_from_those_coins(owner_acc: &signer) {
-        // Eth is 100 * 10^18 (18 decimal places)
-        let eth_amount_num = num(100, 0);
-        let eth_amount = Math::scale_to_decimals(eth_amount_num, 18);
+    fun mint_some_btc_and_create_bank_from_those_coins(owner_acc: &signer) {
+        let btc_amount_num = num(1, 0);
+        let btc_amount = Math::scale_to_decimals(btc_amount_num, 10);
 
-        let eth_minted = Dfinance::mint<ETH>(eth_amount);
+        let btc_minted = Dfinance::mint<BTC>(btc_amount);
         // 66%
-        let max_ltv = 7500;
+        let bank_ltv = 6600;
         // 0.10% (0010)
         let interest_rate = 10;
 
-        CDP::create_bank<ETH, BTC>(
+        CDP::create_bank<BTC, USDT>(
             owner_acc,
-            eth_minted,
-            max_ltv,
+            btc_minted,
+            bank_ltv,
             interest_rate,
             90
         );
@@ -42,7 +40,7 @@ script {
 }
 
 /// signers: 0x102
-/// price: eth_btc 10000000000
+/// price: btc_usdt 4460251000000
 /// current_time: 100
 script {
     use 0x1::Account;
@@ -50,42 +48,32 @@ script {
     use 0x1::CDP;
     use 0x1::Math;
     use 0x1::Math::num;
-    use 0x1::Coins::{BTC, ETH};
+    use 0x1::Coins::{BTC, USDT};
 
     fun create_cdp_deal(borrower_acc: &signer) {
         let bank_address = 0x101;
 
-        // BTC collateral is 1 (= 15.72 ETH)
-        let btc_num = num(1, 0);
-        let btc_amount = Math::scale_to_decimals(copy btc_num, 10);
+        // ~1 BTC in USDT, 44602.51 USDT, 6 signs after dot
+        let usdt_collateral = Dfinance::mint<USDT>(44602510000);
+        // 0.33 BTC = 33% LTV
+        let loan_amount_num = num(33, 2);
 
-        let btc_collateral = Dfinance::mint<BTC>(btc_amount);
-
-        // LTV = (Offered / (Collateral * Price)) * 100%
-        // Offered = LTV * Collateral * Price / 100%
-        // num(6500, 2) * num(1, 0) * num(100, 0) = 65 ETH
-        let loan_amount_num = Math::mul(
-            Math::mul(
-                num(65, 2), // 0.65
-                btc_num),
-            num(100, 0));  // 100 ETH / BTC
-
-        let offered = CDP::create_deal(
+        let loaned_btc = CDP::create_deal<BTC, USDT>(
             borrower_acc,
             bank_address,
-            btc_collateral,
+            usdt_collateral,
             loan_amount_num,
             90);
 
-        let offered_num = num(Dfinance::value(&offered), 18);
-        assert(Math::scale_to_decimals(offered_num, 0) == 65, 1);  // 65 ETH
+        let loaned_btc_num = num(Dfinance::value(&loaned_btc), 10);
+        assert(Math::scale_to_decimals(loaned_btc_num, 2) == 33, 1);  // 0.33 BTC
 
-        Account::deposit_to_sender<ETH>(borrower_acc, offered);
+        Account::deposit_to_sender<BTC>(borrower_acc, loaned_btc);
     }
 }
 
-/// signers: 0x102
-/// price: eth_btc 10000000000
+/// signers: 0x101,0x102
+/// price: btc_usdt 4460251000000
 /// current_time: 200
 script {
     use 0x1::Account;
@@ -93,95 +81,99 @@ script {
     use 0x1::Signer;
     use 0x1::Math::num;
     use 0x1::Math;
-    use 0x1::Coins::{ETH, BTC};
+    use 0x1::Coins::{BTC, USDT};
 
-    fun borrow_5_more_eth(borrower_acc: &signer) {
-        let new_loan_num = num(5, 0);
-        let eth = CDP::borrow_more<ETH, BTC>(borrower_acc, new_loan_num);
-        Account::deposit_to_sender<ETH>(borrower_acc, eth);
+    fun borrow_0_25_more_btc(owner_acc: &signer, borrower_acc: &signer) {
+        // 0.25 BTC
+        let new_loan_num = num(25, 2);
+        let more_loaned_btc = CDP::borrow_more<BTC, USDT>(borrower_acc, new_loan_num);
+        Account::deposit_to_sender<BTC>(borrower_acc, more_loaned_btc);
 
         let borrower_addr = Signer::address_of(borrower_acc);
-        let status = CDP::get_deal_status<ETH, BTC>(borrower_addr);
+        let status = CDP::get_deal_status<BTC, USDT>(borrower_acc, borrower_addr);
         assert(status == 93, 1);
 
-        let loan_amount = CDP::get_loan_amount<ETH, BTC>(borrower_addr);
-        assert(Math::equals(loan_amount, num(70000178082191780805, 18)), 2);
+        let loan_amount = CDP::get_loan_amount<BTC, USDT>(borrower_acc, borrower_addr);
+        assert(Math::equals(loan_amount, num(58, 2)), 2);
+
+        assert(Account::balance<USDT>(owner_acc) == 40325, 3);
     }
 }
 
 
-/// signers: 0x102
-/// price: eth_btc 10000000000
-/// current_time: 300
+/// signers: 0x101,0x102
+/// price: btc_usdt 4460251000000
+/// current_time: 400
 script {
     use 0x1::Account;
     use 0x1::CDP;
     use 0x1::Signer;
     use 0x1::Math::num;
     use 0x1::Math;
-    use 0x1::Coins::{ETH, BTC};
+    use 0x1::Coins::{BTC, USDT};
 
-    fun borrow_3_more_eth_no_new_interest_added(borrower_acc: &signer) {
+    fun borrow_0_02_more_btc_no_new_interest_added(owner_acc: &signer, borrower_acc: &signer) {
         // use different representation to test for correct unpacking
-        let new_loan_num = num(3000, 3);
-        let eth = CDP::borrow_more<ETH, BTC>(borrower_acc, new_loan_num);
-        Account::deposit_to_sender<ETH>(borrower_acc, eth);
+        // 0.02 BTC
+        let new_loan_num = num(2, 2);
+        let new_loan_btc = CDP::borrow_more<BTC, USDT>(borrower_acc, new_loan_num);
+        Account::deposit_to_sender<BTC>(borrower_acc, new_loan_btc);
 
         let borrower_addr = Signer::address_of(borrower_acc);
-        let status = CDP::get_deal_status<ETH, BTC>(borrower_addr);
+        let status = CDP::get_deal_status<BTC, USDT>(borrower_acc, borrower_addr);
         assert(status == 93, 1);
 
-        let loan_amount = CDP::get_loan_amount<ETH, BTC>(borrower_addr);
-        assert(Math::equals(loan_amount, num(73000178082191780805, 18)), 2);
+        let loan_amount = CDP::get_loan_amount<BTC, USDT>(borrower_acc, borrower_addr);
+        assert(Math::equals(loan_amount, num(60, 2)), 2);
+
+        assert(Account::balance<USDT>(owner_acc) == 40325, 3);
     }
 }
 
 
-/// signers: 0x102
-/// price: eth_btc 8000000000
-/// current_time: 400
+/// signers: 0x101,0x102
+/// price: btc_usdt 4460251000000
+/// current_time: 86800
 script {
+    use 0x1::Account;
     use 0x1::CDP;
     use 0x1::Signer;
     use 0x1::Dfinance;
-    use 0x1::Math::num;
-    use 0x1::Math;
-    use 0x1::Coins::{ETH, BTC};
+    use 0x1::Coins::{BTC, USDT};
 
-    fun add_more_collateral(borrower_acc: &signer) {
-        let new_collateral_num = num(10, 1);  // 1 BTC
-        let new_collateral_amount = Math::scale_to_decimals(new_collateral_num, 10);
-        let new_collateral = Dfinance::mint(new_collateral_amount);
+    fun add_more_collateral(owner_acc: &signer, borrower_acc: &signer) {
+        // ~0.5 BTC in USDT, 22302.51 USDT, 6 signs after dot
+        let additional_usdt_collateral = Dfinance::mint<USDT>(22302510000);
 
         let borrower_addr = Signer::address_of(borrower_acc);
-        CDP::add_collateral<ETH, BTC>(borrower_acc, borrower_addr, new_collateral);
+        CDP::add_collateral<BTC, USDT>(borrower_acc, borrower_addr, additional_usdt_collateral);
 
         // without additional collateral, this 80 ETH / BTC price will give margin call
-        let status = CDP::get_deal_status<ETH, BTC>(borrower_addr);
+        let status = CDP::get_deal_status<BTC, USDT>(borrower_acc, borrower_addr);
         assert(status == 93, 1);
+
+        assert(Account::balance<USDT>(owner_acc) == 113644, 3);
     }
 }
 
 /// signers: 0x102
-/// price: eth_btc 8000000000
-/// current_time: 400
+/// price: btc_usdt 4460251000000
+/// current_time: 86800
 /// aborts_with: 103
 script {
     use 0x1::CDP;
     use 0x1::Account;
     use 0x1::Signer;
     use 0x1::Dfinance;
-    use 0x1::Math::num;
-    use 0x1::Math;
-    use 0x1::Coins::{ETH, BTC};
+    use 0x1::Coins::{BTC, USDT};
 
     fun cannot_withdraw_collateral_if_ltv_is_too_big(borrower_acc: &signer) {
-        let withdrawn_collateral_num = num(15, 1);  // 1.5 BTC
-        let withdrawn_collateral_amount = Math::scale_to_decimals(withdrawn_collateral_num, 10);
+        // 44602 USDT = 1 BTC
+        let withdrawn_collateral_amount = 44602510000;
 
         let borrower_addr = Signer::address_of(borrower_acc);
         let withdrawn_collateral =
-            CDP::get_collateral<ETH, BTC>(borrower_acc, borrower_addr, withdrawn_collateral_amount);
+            CDP::get_collateral<BTC, USDT>(borrower_acc, borrower_addr, withdrawn_collateral_amount);
         assert(Dfinance::value(&withdrawn_collateral) == withdrawn_collateral_amount, 1);
 
         Account::deposit_to_sender(borrower_acc, withdrawn_collateral);
@@ -190,24 +182,22 @@ script {
 
 
 /// signers: 0x102
-/// price: eth_btc 8000000000
-/// current_time: 400
+/// price: btc_usdt 4460251000000
+/// current_time: 86800
 script {
     use 0x1::CDP;
     use 0x1::Account;
     use 0x1::Signer;
     use 0x1::Dfinance;
-    use 0x1::Math::num;
-    use 0x1::Math;
-    use 0x1::Coins::{ETH, BTC};
+    use 0x1::Coins::{BTC, USDT};
 
     fun withdraw_collateral(borrower_acc: &signer) {
-        let withdrawn_collateral_num = num(5, 1);  // 0.5 BTC
-        let withdrawn_collateral_amount = Math::scale_to_decimals(withdrawn_collateral_num, 10);
+        // 22302 USDT = 0.5 BTC
+        let withdrawn_collateral_amount = 22302510000;
 
         let borrower_addr = Signer::address_of(borrower_acc);
         let withdrawn_collateral =
-            CDP::get_collateral<ETH, BTC>(borrower_acc, borrower_addr, withdrawn_collateral_amount);
+            CDP::get_collateral<BTC, USDT>(borrower_acc, borrower_addr, withdrawn_collateral_amount);
         assert(Dfinance::value(&withdrawn_collateral) == withdrawn_collateral_amount, 1);
 
         Account::deposit_to_sender(borrower_acc, withdrawn_collateral);
@@ -216,26 +206,27 @@ script {
 
 
 /// signers: 0x102
-/// price: eth_btc 10000000000
-/// current_time: 500
+/// price: btc_usdt 4460251000000
+/// current_time: 86800
 script {
     use 0x1::CDP;
     use 0x1::Signer;
     use 0x1::Dfinance;
     use 0x1::Math::num;
     use 0x1::Math;
-    use 0x1::Coins::{ETH, BTC};
+    use 0x1::Coins::{BTC, USDT};
 
     fun pay_back_deal_partially(borrower_acc: &signer) {
-        let loan_chunk_num = num(5, 0);  // 5 ETH
-        let loan_chunk_amount = Math::scale_to_decimals(loan_chunk_num, 18);
-        let loan_chunk = Dfinance::mint<ETH>(loan_chunk_amount);
+        // 0.5 BTC
+        let loan_chunk_btc_num = num(5, 1);
+        let loan_chunk_btc_amount = Math::scale_to_decimals(loan_chunk_btc_num, 10);
+        let loan_chunk = Dfinance::mint<BTC>(loan_chunk_btc_amount);
 
         let borrower_addr = Signer::address_of(borrower_acc);
-        CDP::pay_back_partially<ETH, BTC>(borrower_acc, borrower_addr, loan_chunk);
+        CDP::pay_back_partially<BTC, USDT>(borrower_acc, borrower_addr, loan_chunk);
 
         // without additional collateral, this 80 ETH / BTC price will give margin call
-        let loan_amount_num = CDP::get_loan_amount<ETH, BTC>(borrower_addr);
-        assert(Math::equals(loan_amount_num, num(68000178082191780805, 18)), 1);
+        let loan_amount_num = CDP::get_loan_amount<BTC, USDT>(borrower_acc, borrower_addr);
+        assert(Math::equals(loan_amount_num, num(1, 1)), 1);
     }
 }
