@@ -5,11 +5,14 @@ address 0x1 {
 /// registered coins and rules of their usage. Also it lessens load from 0x1::Account
 module Dfinance {
 
-    use 0x1::Event;
     use 0x1::Signer;
+    use 0x1::Event;
 
+    const ERR_INSUFFICIENT_PRIVILLEGES: u64 = 101;
+    const ERR_TOKEN_ALREADY_REGISTERED: u64 = 102;
+    const ERR_DECIMALS_OUT_OF_BOUNDS: u64 = 103;
+    const ERR_CANT_WITHDRAW: u64 = 104;
     const ERR_NON_ZERO_DEPOSIT: u64 = 105;
-    const ERR_CANT_WITHDRAW: u64 = 106;
 
     resource struct T<Coin> {
         value: u128
@@ -23,16 +26,6 @@ module Dfinance {
         is_token: bool,
         owner: address,
         total_supply: u128
-    }
-
-    //
-    public fun mint<Coin>(value: u128): T<Coin> {
-        T<Coin> { value }
-    }
-
-    public fun destroy_zero<Coin>(coin: T<Coin>) {
-        let T { value } = coin;
-        assert(value == 0, ERR_NON_ZERO_DEPOSIT)
     }
 
     public fun value<Coin>(coin: &T<Coin>): u128 {
@@ -64,6 +57,19 @@ module Dfinance {
         T { value: amount }
     }
 
+    public fun destroy_zero<Coin>(coin: T<Coin>) {
+        let T { value } = coin;
+        assert(value == 0, ERR_NON_ZERO_DEPOSIT)
+    }
+
+    /// Working with CoinInfo - coin registration procedure, 0x1 account used
+
+    /// What can be done here:
+    ///   - proposals API: user creates resource Info, pushes it into queue
+    ///     0x1 government reads and registers proposed resources by taking them
+    ///   - try to find the way to share Info using custom module instead of
+    ///     writing into main register (see above)
+
     /// getter for denom. reads denom information from 0x1 resource
     public fun denom<Coin>(): vector<u8> acquires Info {
         *&borrow_global<Info<Coin>>(0x1).denom
@@ -90,7 +96,7 @@ module Dfinance {
     }
 
     /// only 0x1 address and add denom descriptions, 0x1 holds information resource
-    public fun register_coin<Coin: copyable>(account: &signer, denom: vector<u8>, decimals: u8) {
+    public fun register_coin<Coin>(account: &signer, denom: vector<u8>, decimals: u8) {
         assert_can_register_coin(account);
 
         move_to<Info<Coin>>(account, Info {
@@ -105,13 +111,8 @@ module Dfinance {
 
     /// check whether sender is 0x1, helper method
     fun assert_can_register_coin(account: &signer) {
-        assert(Signer::address_of(account) == 0x1, 1);
+        assert(Signer::address_of(account) == 0x1, ERR_INSUFFICIENT_PRIVILLEGES);
     }
-
-    // ..... TOKEN .....
-    // - Everyone can register his own token
-    // - Owner has control over minting of his token, total supply and optional destruction
-    // - Token can be destroyed only if total supply is returned
 
     const DECIMALS_MIN : u8 = 0;
     const DECIMALS_MAX : u8 = 18;
@@ -140,11 +141,11 @@ module Dfinance {
         denom: vector<u8>
     ): T<Token<Tok>> {
 
-        // check if this token type has never been registered
-        assert(!exists<Info<Tok>>(0x1), 1);
+        // check if this token has never been registered
+        assert(!exists<Info<Tok>>(0x1), ERR_TOKEN_ALREADY_REGISTERED);
 
         // no more than DECIMALS MAX is allowed
-        assert(decimals >= DECIMALS_MIN && decimals <= DECIMALS_MAX, 20);
+        assert(decimals >= DECIMALS_MIN && decimals <= DECIMALS_MAX, ERR_DECIMALS_OUT_OF_BOUNDS);
 
         let owner = Signer::address_of(account);
 
@@ -171,10 +172,15 @@ module Dfinance {
     }
 
     /// Created Info resource must be attached to 0x1 address.
+    /// Keeping this public until native function is ready.
     fun register_token_info<Coin: copyable>(info: Info<Coin>) {
         let sig = create_signer(0x1);
         move_to<Info<Coin>>(&sig, info);
         destroy_signer(sig);
+    }
+
+    public fun mint<Coin>(value: u128): T<Coin> {
+        T<Coin> { value }
     }
 
     native fun create_signer(addr: address): signer;
